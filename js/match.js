@@ -4,6 +4,7 @@ import {
   canStartSpareggio,
   awardLeagueVictory,
   getCurrentMatchRound,
+  getStarterPlayers,
 } from './state.js';
 
 const CORNERS = ['left', 'center', 'right'];
@@ -28,11 +29,16 @@ export class SpareggioController {
     // Possesso normalizzato 0..100 (completamente indipendente dai soldi/tap grezzi!)
     this.possession = 0;
     this.squadFactor = 1.0;
-    this.attackCooldown = 0;      // min 3.2s tra un TIRA! e il successivo
+    this.attackCooldown = 0;      // min 3.2s tra un TIRA! e il successivo (2.4s con Vavelocino)
+    this.attackCooldownDuration = ATTACK_COOLDOWN_SEC;
     this.actionBufferTimer = 0;   // ~1s di respiro per evitare sovrapposizioni TIRA!/PARA!
     this.saveWindowSec = 1.35;
     this.hasPorcotrio = false;
     this.hasLoma = false;
+    this.hasPscon = false;
+    this.hasVavelocino = false;
+    this.psconShieldAvailable = false;
+    this.startersSnapshot = [];
     this.dangerSchedule = [];     // array di timestamp (s) pianificati per i 4-6 PARA!
 
     this.leagueIndex = 0;
@@ -96,13 +102,19 @@ export class SpareggioController {
 
     this.hasPorcotrio = stats.hasPorcotrio;
     this.hasLoma = stats.hasLoma;
+    this.hasPscon = stats.hasPscon;
+    this.hasVavelocino = stats.hasVavelocino;
+    this.psconShieldAvailable = this.hasPscon;
+    this.attackCooldownDuration = this.hasVavelocino ? 2.4 : ATTACK_COOLDOWN_SEC;
+    this.startersSnapshot = getStarterPlayers(state);
 
     // Finestra PARA! (1.15s..1.45s * tattica, +25% con Loma "Muro Invalicabile")
     const lomaMult = this.hasLoma ? 1.25 : 1.0;
     this.saveWindowSec = (round.saveWindowSec || 1.35) * tactic.saveWindowMult * lomaMult;
 
-    // Pianifica 4–6 attacchi avversari ben distribuiti lungo i 28s
-    this.dangerSchedule = this._buildDangerSchedule(tactic.dangerCount, this.duration);
+    // Pianifica 4–6 attacchi avversari ben distribuiti (-1 con Tumas Pscon "Muro di Granito")
+    const dangerCount = Math.max(2, tactic.dangerCount - (this.hasPscon ? 1 : 0));
+    this.dangerSchedule = this._buildDangerSchedule(dangerCount, this.duration);
 
     this.goalChance = null;
     this.enemyDanger = null;
@@ -185,9 +197,10 @@ export class SpareggioController {
     if (this.attackCooldown > 0) return null;
 
     const baseGain = isCrit ? 12.0 * this.tactic.critPossessionMult : 7.4;
+    const turboMult = this.hasVavelocino ? 1.25 : 1.0;
     this.possession = Math.min(
       100,
-      this.possession + baseGain * this.tactic.possessionMult * this.squadFactor
+      this.possession + baseGain * this.tactic.possessionMult * this.squadFactor * turboMult
     );
 
     if (this.possession >= 100 && this.actionBufferTimer <= 0 && this.elapsed < this.duration - 1.5) {
@@ -212,7 +225,7 @@ export class SpareggioController {
       if (Math.hypot(clickX - pt.x, clickY - pt.y) <= hitRadiusPx) {
         const progress = 1 - act.timeLeft / act.maxTime;
         this.goalChance = null;
-        this.attackCooldown = ATTACK_COOLDOWN_SEC;
+        this.attackCooldown = this.attackCooldownDuration;
         this.actionBufferTimer = 1.05; // lascia ~1s pulito prima di eventuale PARA!
 
         if (progress >= act.bandMin && progress <= act.bandMax) {
@@ -261,7 +274,8 @@ export class SpareggioController {
 
     // 1. Avanzamento passivo possesso (solo fuori da Azioni Chiave e fuori cooldown)
     if (!this.goalChance && !this.enemyDanger && this.attackCooldown <= 0) {
-      const passiveRate = 11.5 * this.tactic.possessionMult * this.squadFactor;
+      const turboMult = this.hasVavelocino ? 1.25 : 1.0;
+      const passiveRate = 11.5 * this.tactic.possessionMult * this.squadFactor * turboMult;
       this.possession = Math.min(100, this.possession + passiveRate * dt);
       if (
         this.possession >= 100 &&
@@ -294,7 +308,7 @@ export class SpareggioController {
       if (this.goalChance.timeLeft <= 0) {
         const old = this.goalChance;
         this.goalChance = null;
-        this.attackCooldown = ATTACK_COOLDOWN_SEC;
+        this.attackCooldown = this.attackCooldownDuration;
         this.actionBufferTimer = 1.0;
         events.push({ type: 'chance_expired', nx: old.nx, ny: old.ny });
       }
@@ -307,8 +321,13 @@ export class SpareggioController {
         const old = this.enemyDanger;
         this.enemyDanger = null;
         this.actionBufferTimer = 0.9;
-        this.oppGoals += 1;
-        events.push({ type: 'enemy_goal', nx: old.nx, ny: old.ny });
+        if (this.psconShieldAvailable) {
+          this.psconShieldAvailable = false;
+          events.push({ type: 'pscon_block', nx: old.nx, ny: old.ny });
+        } else {
+          this.oppGoals += 1;
+          events.push({ type: 'enemy_goal', nx: old.nx, ny: old.ny });
+        }
       }
     }
 
@@ -325,6 +344,8 @@ export class SpareggioController {
           type: 'match_finished',
           won: true,
           byPenalties: false,
+          leagueIndex: this.leagueIndex,
+          starters: this.startersSnapshot,
           myGoals: this.myGoals,
           oppGoals: this.oppGoals,
           opponent: this.opponent,
@@ -337,6 +358,8 @@ export class SpareggioController {
           type: 'match_finished',
           won: false,
           byPenalties: false,
+          leagueIndex: this.leagueIndex,
+          starters: this.startersSnapshot,
           myGoals: this.myGoals,
           oppGoals: this.oppGoals,
           opponent: this.opponent,
@@ -527,6 +550,8 @@ export class SpareggioController {
         type: 'match_finished',
         won: true,
         byPenalties: true,
+        leagueIndex: this.leagueIndex,
+        starters: this.startersSnapshot,
         myGoals: this.myGoals,
         oppGoals: this.oppGoals,
         myPen,
@@ -541,6 +566,8 @@ export class SpareggioController {
       type: 'match_finished',
       won: false,
       byPenalties: true,
+      leagueIndex: this.leagueIndex,
+      starters: this.startersSnapshot,
       myGoals: this.myGoals,
       oppGoals: this.oppGoals,
       myPen,

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'presidente-provincia-v4-1';
+const CACHE_NAME = 'presidente-provincia-v5';
 
 const APP_SHELL = [
   './',
@@ -14,6 +14,7 @@ const APP_SHELL = [
   './js/format.js',
   './js/state.js',
   './js/research.js',
+  './js/challenges.js',
   './js/storage.js',
   './js/audio.js',
   './js/gacha.js',
@@ -53,7 +54,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Strategia Network-First con fallback su cache per sviluppo rapido + supporto offline
+// Strategia Network-First con fallback su cache per aggiornamenti immediati + offline
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;

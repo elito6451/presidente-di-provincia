@@ -1,6 +1,10 @@
 import { DEMO_AD_SECONDS, RARITIES, MAX_PLAYER_STARS } from '../config.js';
 import { formatMoney, formatDuration, escapeHTML } from '../format.js';
-import { formatPlayerBonus, getPlayerEffectivePower } from '../gacha.js';
+import {
+  formatPlayerBonus,
+  getPlayerEffectivePower,
+  canFuseBenchIntoStarter,
+} from '../gacha.js';
 import { audio } from '../audio.js';
 import { iconSvg } from './icons.js';
 import { getGinoAvatarSvg } from '../assistant.js';
@@ -296,8 +300,13 @@ export class ModalManager {
         headline = '🔥 QUALIFICATO ALLA FINALE!';
         desc = `${scoreLine}<br/><br/>Semifinale superata${tokLine}! Ora ti attende la <strong>${escapeHTML(result.nextRound.roundName)}</strong> contro <strong>${escapeHTML(result.nextRound.opponent)}</strong>!`;
       } else if (result.finalCup) {
-        headline = '⭐ CAMPIONI D\'EUROPA!';
-        desc = `${scoreLine}<br/><br/>Hai conquistato <strong>${escapeHTML(result.trophyName)}</strong>${tokLine}! Sei nella storia del calcio!`;
+        headline = '🌌 CAMPIONI DELLA SUPERLEGA!';
+        desc = `${scoreLine}<br/><br/>Hai conquistato <strong>${escapeHTML(result.trophyName)}</strong>${tokLine}! Ora puoi avviare la <strong>Nuova Stagione</strong> nella tab Spareggio per ottenere una <strong>Stella d'Oro ★ (×2 permanente)</strong> e <strong>+25 🪙</strong>!`;
+      }
+
+      if (result.newChallenges && result.newChallenges.length > 0) {
+        const chNames = result.newChallenges.map((c) => `${c.icon} ${c.name} (+${c.tokenReward} 🪙)`).join(', ');
+        desc += `<br/><br/><span style="color:#fde047;font-weight:800;">🏅 Sfida completata: ${escapeHTML(chNames)}</span>`;
       }
 
       this._open(`
@@ -435,6 +444,136 @@ export class ModalManager {
     document.getElementById('btn-confirm-prestige')?.addEventListener('click', () => {
       this.close();
       onConfirm();
+    });
+    document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
+  }
+
+  showSlotPickerModal({ slotDef, currentStarter, benchCandidates, onPick, onFuse, onUnequip }) {
+    const currentHtml = currentStarter
+      ? `
+        <div class="slot-picker-current">
+          <div style="font-size:10px;color:#86efac;font-weight:900;text-transform:uppercase;">Titolare Attuale</div>
+          <div style="font-size:13px;font-weight:900;color:#fff;margin-top:2px;">
+            ${escapeHTML(currentStarter.name)} <span style="color:#fbbf24;">${'★'.repeat(currentStarter.stars)}</span>
+          </div>
+          <div style="font-size:11px;color:#cbd5e1;margin-top:2px;">
+            ${escapeHTML(formatPlayerBonus(currentStarter))} • ⚡${getPlayerEffectivePower(currentStarter)}
+          </div>
+          <button type="button" class="mini-btn" id="btn-slot-unequip" style="margin-top:6px;">Metti in Panchina</button>
+        </div>
+      `
+      : `<div style="font-size:12px;color:#94a3b8;">Slot attualmente vuoto. Scegli un <strong>${slotDef.role}</strong> dalla panchina!</div>`;
+
+    const listHtml =
+      benchCandidates.length === 0
+        ? `<div style="font-size:12px;color:#94a3b8;padding:10px 0;">Nessun <strong>${slotDef.role}</strong> disponibile in panchina.<br/>Apri buste Scouting per trovarne!</div>`
+        : benchCandidates
+            .map((p) => {
+              const rar = RARITIES[p.rarity] || RARITIES.comune;
+              const canFuse = currentStarter && canFuseBenchIntoStarter(p, currentStarter);
+              return `
+                <div class="slot-picker-row" style="border-left:3px solid ${rar.color};">
+                  <div style="text-align:left;min-width:0;flex:1;">
+                    <div style="font-size:12px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                      ${escapeHTML(p.name)}
+                    </div>
+                    <div style="font-size:10.5px;color:#cbd5e1;">
+                      <span style="color:${rar.color};font-weight:900;">${rar.label}</span> •
+                      <span style="color:#fbbf24;">${'★'.repeat(p.stars)}</span> •
+                      ⚡${getPlayerEffectivePower(p)}
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:5px;flex-shrink:0;">
+                    <button type="button" class="mini-btn primary" data-pick-player="${p.id}">Schiera</button>
+                    ${canFuse ? `<button type="button" class="mini-btn fuse" data-fuse-player="${p.id}">Fondi ★</button>` : ''}
+                  </div>
+                </div>
+              `;
+            })
+            .join('');
+
+    this._open(`
+      <h2 class="modal-title">⚙️ Slot ${escapeHTML(slotDef.label)} (${slotDef.role})</h2>
+      ${currentHtml}
+      <div class="slot-picker-list">${listHtml}</div>
+      <div class="modal-actions">
+        <button type="button" class="sec-btn" id="btn-close-modal">Chiudi</button>
+      </div>
+    `);
+
+    document.getElementById('btn-slot-unequip')?.addEventListener('click', () => {
+      this.close();
+      onUnequip();
+    });
+    this.root.querySelectorAll('[data-pick-player]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.close();
+        onPick(btn.dataset.pickPlayer);
+      });
+    });
+    this.root.querySelectorAll('[data-fuse-player]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.close();
+        onFuse(btn.dataset.fusePlayer);
+      });
+    });
+    document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
+  }
+
+  showNewSeasonConfirm({ nextSeason, nextStars, nextMult, gainedShares, bonusTokens }, onConfirm) {
+    this._open(`
+      <h2 class="modal-title">🌌 Avvia Stagione ${nextSeason}</h2>
+      <div class="modal-body">
+        Hai trionfato nella <strong>Superlega Galattica</strong>!<br/><br/>
+        • Ricevi <strong>+1 ★ Stella d'Oro</strong> sul nome del Club (Totale: <strong>${nextStars}★</strong> → moltiplicatore permanente <strong>×${nextMult}</strong>!).<br/>
+        • Bonus immediato: <strong>+${bonusTokens} 🪙 Gettoni d'Oro</strong>${gainedShares > 0 ? ` + <strong>+${gainedShares} Azioni Prestige</strong>` : ''}.<br/>
+        • Le soglie cassa della Stagione ${nextSeason} crescono di <strong>×5</strong> per una nuova sfida leggendaria!<br/>
+        • <strong>Mantieni per sempre</strong>: Stelle ★, Gettoni, Ricerche, Trofei, Segreti scoperti e Sfide.
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="cta-btn season-btn" id="btn-confirm-season">★ Inizia Stagione ${nextSeason}!</button>
+        <button type="button" class="sec-btn" id="btn-close-modal">Annulla</button>
+      </div>
+    `);
+
+    document.getElementById('btn-confirm-season')?.addEventListener('click', () => {
+      this.close();
+      onConfirm();
+    });
+    document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
+  }
+
+  showWhatsAppCardModal(cardText) {
+    this._open(`
+      <h2 class="modal-title">📋 Scheda Club WhatsApp</h2>
+      <div class="modal-body">Tocca il pulsante qui sotto oppure tieni premuto sul riquadro per copiare e condividere!</div>
+      <textarea class="modal-textarea" id="wa-card-ta" readonly style="min-height:140px;font-family:system-ui,sans-serif;font-size:12px;">${escapeHTML(cardText)}</textarea>
+      <div class="modal-actions">
+        <button type="button" class="cta-btn" id="btn-wa-copy-fallback">Copia Testo</button>
+        <button type="button" class="sec-btn" id="btn-close-modal">Chiudi</button>
+      </div>
+    `);
+
+    const ta = document.getElementById('wa-card-ta');
+    if (ta) {
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, cardText.length);
+    }
+
+    document.getElementById('btn-wa-copy-fallback')?.addEventListener('click', () => {
+      if (ta) {
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, cardText.length);
+        try {
+          document.execCommand('copy');
+          this.toast('Scheda copiata! Incollala su WhatsApp!');
+          this.close();
+        } catch {
+          this.toast('Selezionato: usa Copia dal menu del telefono!');
+        }
+      }
     });
     document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
   }

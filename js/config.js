@@ -1,20 +1,23 @@
-// Configurazione centrale v3.0 ("Tycoon Edition") di "Presidente di Provincia"
+// Configurazione centrale v3.5 ("Endgame & Bilanciamento") di "Presidente di Provincia"
 
 export const SAVE_KEY = 'presidente_provincia_save_v1';
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const AUTO_SAVE_INTERVAL_MS = 5000;
 export const OFFLINE_MIN_SECONDS = 15;
 export const OFFLINE_BASE_CAP_HOURS = 2; // espandibile fino a 12h con Ritiro H24
 export const BOOST_DURATION_MS = 60 * 1000;
 export const INVASION_BOOST_DURATION_MS = 25 * 1000;
+export const POLPETTA_BOOST_DURATION_MS = 10 * 1000;
+export const POLPETTA_COOLDOWN_MS = 45 * 1000;
 export const DEMO_AD_SECONDS = 5;
 export const MAX_PLAYER_STARS = 5;
-export const PACK_COST_GROWTH = 1.22; // v3.0: scalato per economia Miliardi/Trilioni
-export const UPGRADE_COST_GROWTH = 1.15;
+export const PACK_COST_GROWTH = 1.55;    // v3.5: curva ripida + floor su peakBaseIncomePerSec
+export const UPGRADE_COST_GROWTH = 1.18; // v3.5: anti-vittoria senza Prestige
 export const BASE_MATCH_DURATION_SEC = 28;
 export const ATTACK_COOLDOWN_SEC = 3.2;
 
 export const PRESTIGE_UNLOCK_RUN_CASH = 100000;
+export const SEASON_BONUS_TOKENS = 25;
 export const MILESTONE_LEVELS = [10, 25, 50, 100];
 export const MILESTONE_TOKEN_REWARDS = {
   10: 1,
@@ -22,6 +25,15 @@ export const MILESTONE_TOKEN_REWARDS = {
   50: 4,
   100: 6,
 };
+
+// 5 slot di ruolo fissi per la formazione titolare (1 POR, 1 DIF, 1 CEN, 2 ATT)
+export const FORMATION_SLOTS_DEF = [
+  { key: 'POR', role: 'POR', label: 'POR', x: 0.12, y: 0.50 },
+  { key: 'DIF', role: 'DIF', label: 'DIF', x: 0.30, y: 0.50 },
+  { key: 'CEN', role: 'CEN', label: 'CEN', x: 0.50, y: 0.50 },
+  { key: 'ATT1', role: 'ATT', label: 'ATT', x: 0.68, y: 0.32 },
+  { key: 'ATT2', role: 'ATT', label: 'ATT', x: 0.68, y: 0.68 },
+];
 
 export const DEFAULT_CLUB_NAME = 'Real Provincia';
 export const DEFAULT_CLUB_COLORS = {
@@ -80,6 +92,7 @@ export const TACTICS = {
   },
 };
 
+// 7 categorie (moltiplicatori ×1..×64, soglie ricalibrate fino a Superlega Galattica)
 export const LEAGUES = [
   {
     id: 'terza',
@@ -90,7 +103,7 @@ export const LEAGUES = [
     badgeColor: '#a16207',
     accent: '#d97706',
     multiplier: 1,
-    unlockCash: 1400,
+    unlockCash: 1500,
     minSquadPower: 12,
     minInfraLevels: 6,
     promotionTokens: 5,
@@ -116,10 +129,10 @@ export const LEAGUES = [
     subtitle: 'Tramonto caldo e tribunetta in cemento',
     badgeColor: '#15803d',
     accent: '#22c55e',
-    multiplier: 2.5,
-    unlockCash: 28000,
+    multiplier: 2,
+    unlockCash: 35000,
     minSquadPower: 55,
-    minInfraLevels: 20,
+    minInfraLevels: 18,
     promotionTokens: 8,
     matchTitle: 'Playoff Serie C',
     matchOpponent: 'Atletico Bar Sport',
@@ -143,10 +156,10 @@ export const LEAGUES = [
     subtitle: 'Prato a strisce, curva calda e fumogeni',
     badgeColor: '#0369a1',
     accent: '#38bdf8',
-    multiplier: 8,
-    unlockCash: 25000000, // €25M — primo vero muro morbido Tycoon
-    minSquadPower: 190,
-    minInfraLevels: 48,
+    multiplier: 4,
+    unlockCash: 35000000, // €35M
+    minSquadPower: 170,
+    minInfraLevels: 42,
     promotionTokens: 12,
     matchTitle: 'Spareggio Serie A',
     matchOpponent: 'FC Cemento Armato',
@@ -158,7 +171,7 @@ export const LEAGUES = [
         roundName: 'Spareggio Serie A',
         opponent: 'FC Cemento Armato',
         oppColors: ['#64748b', '#ef4444'],
-        saveWindowSec: 1.3,
+        saveWindowSec: 1.32,
       },
     ],
   },
@@ -170,10 +183,10 @@ export const LEAGUES = [
     subtitle: 'Stadio gremito, riflettori volumetrici e flash',
     badgeColor: '#7e22ce',
     accent: '#c084fc',
-    multiplier: 35,
-    unlockCash: 45000000000, // €45B
-    minSquadPower: 520,
-    minInfraLevels: 85,
+    multiplier: 8,
+    unlockCash: 85000000000, // €85B
+    minSquadPower: 440,
+    minInfraLevels: 74,
     promotionTokens: 18,
     matchTitle: 'Playoff Europeo',
     matchOpponent: 'Vecchia Signora FC',
@@ -185,13 +198,13 @@ export const LEAGUES = [
         roundName: 'Semifinale Scudetto',
         opponent: 'Lupa Capitolina',
         oppColors: ['#991b1b', '#f59e0b'],
-        saveWindowSec: 1.24,
+        saveWindowSec: 1.26,
       },
       {
         roundName: 'Finale Scudetto',
         opponent: 'Vecchia Signora FC',
         oppColors: ['#111827', '#f8fafc'],
-        saveWindowSec: 1.2,
+        saveWindowSec: 1.22,
       },
     ],
   },
@@ -199,38 +212,104 @@ export const LEAGUES = [
     id: 'europa',
     index: 4,
     name: 'Notte Europea',
-    shortName: 'Notte Europea',
+    shortName: 'Champions',
     subtitle: 'Arena futuristica, fasci di luce e fuochi',
     badgeColor: '#1d4ed8',
     accent: '#60a5fa',
-    multiplier: 160,
-    unlockCash: 80000000000000, // €80T
-    minSquadPower: 1150,
-    minInfraLevels: 135,
-    promotionTokens: 30,
+    multiplier: 16,
+    unlockCash: 250000000000000, // €250T
+    minSquadPower: 850,
+    minInfraLevels: 108,
+    promotionTokens: 28,
     matchTitle: 'Coppa Europea',
     matchOpponent: 'Real Galacticos',
     trophyId: 'coppa_europa',
-    trophyName: 'Coppa dalle Grandi Orecchie',
+    trophyName: 'Coppa Grandi Orecchie',
     trophyIcon: '⭐',
     rounds: [
       {
         roundName: 'Semifinale Europea',
         opponent: 'Bayern Monaco Nord',
         oppColors: ['#dc2626', '#1d4ed8'],
-        saveWindowSec: 1.18,
+        saveWindowSec: 1.20,
       },
       {
         roundName: 'Finale Europea',
         opponent: 'Real Galacticos',
         oppColors: ['#f8fafc', '#fbbf24'],
-        saveWindowSec: 1.15,
+        saveWindowSec: 1.16,
+      },
+    ],
+  },
+  {
+    id: 'mondiale',
+    index: 5,
+    name: 'Mondiale per Club',
+    shortName: 'Mondiale',
+    subtitle: 'Arena dorata globale con i campioni dei 5 continenti',
+    badgeColor: '#b45309',
+    accent: '#fbbf24',
+    multiplier: 32,
+    unlockCash: 1.5e18, // €1,5Qi
+    minSquadPower: 1250,
+    minInfraLevels: 140,
+    promotionTokens: 40,
+    matchTitle: 'Mondiale per Club',
+    matchOpponent: 'Intercontinental FC',
+    trophyId: 'coppa_mondiale',
+    trophyName: 'Coppa del Mondo Club',
+    trophyIcon: '🌍',
+    rounds: [
+      {
+        roundName: 'Semifinale Mondiale',
+        opponent: 'Boca Galactica',
+        oppColors: ['#1d4ed8', '#facc15'],
+        saveWindowSec: 1.16,
+      },
+      {
+        roundName: 'Finale Mondiale',
+        opponent: 'Intercontinental FC',
+        oppColors: ['#047857', '#fef08a'],
+        saveWindowSec: 1.14,
+      },
+    ],
+  },
+  {
+    id: 'superlega',
+    index: 6,
+    name: 'Superlega Galattica',
+    shortName: 'Galattica',
+    subtitle: 'Arena cosmica d\'oro tra le stelle dell\'universo',
+    badgeColor: '#9333ea',
+    accent: '#f472b6',
+    multiplier: 64,
+    unlockCash: 2.5e22, // €25Sx
+    minSquadPower: 1700,
+    minInfraLevels: 172,
+    promotionTokens: 60,
+    matchTitle: 'Superlega Galattica',
+    matchOpponent: 'Cosmo Real FC',
+    trophyId: 'coppa_superlega',
+    trophyName: 'Trofeo Galattico',
+    trophyIcon: '🌌',
+    rounds: [
+      {
+        roundName: 'Semifinale Galattica',
+        opponent: 'Nebula United',
+        oppColors: ['#7c3aed', '#38bdf8'],
+        saveWindowSec: 1.14,
+      },
+      {
+        roundName: 'Finale Galattica',
+        opponent: 'Cosmo Real FC',
+        oppColors: ['#fbbf24', '#0f172a'],
+        saveWindowSec: 1.12,
       },
     ],
   },
 ];
 
-// 14 potenziamenti progressivi con sblocco graduale e costruzioni visibili sullo stadio
+// 14 potenziamenti progressivi (crescita costo 1,18^n)
 export const UPGRADES = [
   {
     id: 'righe_gesso',
@@ -279,7 +358,7 @@ export const UPGRADES = [
     id: 'curva_organizzata',
     name: 'Curva Organizzata',
     icon: '🥁',
-    desc: 'Settore Ultras con tifosi saltanti, striscioni e fumogeni!',
+    desc: 'Settore Ultras sugli spalti con striscioni, bandieroni e bengala!',
     baseCost: 2400,
     tapAdd: 0,
     incomeAdd: 75,
@@ -390,7 +469,7 @@ export const UPGRADES = [
     id: 'fondo_sovrano',
     name: 'Fondo Sovrano',
     icon: '👑',
-    desc: 'Budget illimitato, sponsor globale e arena leggendaria.',
+    desc: 'Budget cosmico, sponsor globale e arena leggendaria.',
     baseCost: 6500000000000,
     tapAdd: 15000000,
     incomeAdd: 18000000000,
@@ -400,6 +479,7 @@ export const UPGRADES = [
   },
 ];
 
+// Valori powerBase calibrati sui 5 Titolari: Superlega (1.700) raggiungibile con 5 Leggende 3★-4★ senza obbligo di Segreti!
 export const RARITIES = {
   comune: {
     id: 'comune',
@@ -417,7 +497,7 @@ export const RARITIES = {
     color: '#38bdf8',
     bg: 'rgba(56, 189, 248, 0.16)',
     glow: 'rgba(56, 189, 248, 0.55)',
-    powerBase: 42,
+    powerBase: 44,
     bonusMult: 2.2,
     rank: 2,
   },
@@ -427,7 +507,7 @@ export const RARITIES = {
     color: '#c084fc',
     bg: 'rgba(192, 132, 252, 0.18)',
     glow: 'rgba(192, 132, 252, 0.65)',
-    powerBase: 125,
+    powerBase: 120,
     bonusMult: 4.5,
     rank: 3,
   },
@@ -437,8 +517,8 @@ export const RARITIES = {
     color: '#fbbf24',
     bg: 'rgba(251, 191, 36, 0.2)',
     glow: 'rgba(251, 191, 36, 0.85)',
-    powerBase: 360,
-    bonusMult: 10,
+    powerBase: 230,
+    bonusMult: 9.5,
     rank: 4,
   },
   segreto: {
@@ -447,34 +527,15 @@ export const RARITIES = {
     color: '#f59e0b',
     bg: 'rgba(245, 158, 11, 0.24)',
     glow: 'rgba(251, 146, 60, 0.92)',
-    powerBase: 520,
+    powerBase: 340,
     bonusMult: 12,
     rank: 5,
     secret: true,
   },
 };
 
+// 4 Leggende Segrete (1 per ogni ruolo: POR, DIF, CEN, ATT!)
 export const SECRET_PLAYERS = [
-  {
-    secretId: 'porcotrio',
-    id: 'secret_porcotrio',
-    name: 'Francesco Porcotrio',
-    shortName: 'Porcotrio',
-    role: 'ATT',
-    jerseyColor: '#dc2626',
-    jerseyNumber: 99,
-    rarity: 'segreto',
-    stars: 1,
-    bonusType: 'tapPct',
-    bonusValue: 55,
-    secondaryBonusType: 'critPct',
-    secondaryBonusValue: 15,
-    power: 520,
-    aura: 'fire',
-    abilityName: 'Istinto Killer',
-    abilityDesc: '+22% ampiezza zona gol sull\'anello TIRA!',
-    bio: 'Leggenda mitologica dei campetti di provincia: segna di punta, di stinco e persino bendato. I portieri cambiano provincia quando entra in area.',
-  },
   {
     secretId: 'loma',
     id: 'secret_loma',
@@ -489,14 +550,75 @@ export const SECRET_PLAYERS = [
     bonusValue: 50,
     secondaryBonusType: null,
     secondaryBonusValue: 0,
-    power: 520,
+    power: 340,
     aura: 'electric',
     abilityName: 'Muro Invalicabile',
     abilityDesc: '+25% finestra di parata su PARA! e cursore Rigori più lento',
     bio: 'Nessuno sa da dove arrivi né dove finiscano i suoi guantoni: para missili all\'incrocio, rigori e persino le bollette dello stadio.',
   },
+  {
+    secretId: 'pscon',
+    id: 'secret_pscon',
+    name: 'Tumas Pscon',
+    shortName: 'Pscon',
+    role: 'DIF',
+    jerseyColor: '#b45309',
+    jerseyNumber: 4,
+    rarity: 'segreto',
+    stars: 1,
+    bonusType: 'incomePct',
+    bonusValue: 50,
+    secondaryBonusType: 'squadPowerPct',
+    secondaryBonusValue: 15,
+    power: 350,
+    aura: 'granite',
+    abilityName: 'Muro di Granito',
+    abilityDesc: '-1 attacco PARA! a partita e blocca in automatico il 1° gol subito',
+    bio: 'Scolpito nella roccia della provincia: chi prova a dribblarlo rimbalza fuori dallo stadio. Persino l\'arbitro gli chiede permesso prima di fischiare.',
+  },
+  {
+    secretId: 'vavelocino',
+    id: 'secret_vavelocino',
+    name: 'Vavelocino',
+    shortName: 'Vavelocino',
+    role: 'CEN',
+    jerseyColor: '#10b981',
+    jerseyNumber: 8,
+    rarity: 'segreto',
+    stars: 1,
+    bonusType: 'tapPct',
+    bonusValue: 45,
+    secondaryBonusType: 'incomePct',
+    secondaryBonusValue: 45,
+    power: 350,
+    aura: 'emerald',
+    abilityName: 'Turbo a Centrocampo',
+    abilityDesc: '+25% velocità possesso e cooldown attacco ridotto da 3,2s a 2,4s',
+    bio: 'Motorino inesauribile a tre polmoni: batte il calcio d\'angolo e arriva in area a colpire di testa il proprio cross.',
+  },
+  {
+    secretId: 'porcotrio',
+    id: 'secret_porcotrio',
+    name: 'Francesco Porcotrio',
+    shortName: 'Porcotrio',
+    role: 'ATT',
+    jerseyColor: '#dc2626',
+    jerseyNumber: 99,
+    rarity: 'segreto',
+    stars: 1,
+    bonusType: 'tapPct',
+    bonusValue: 55,
+    secondaryBonusType: 'critPct',
+    secondaryBonusValue: 15,
+    power: 350,
+    aura: 'fire',
+    abilityName: 'Istinto Killer',
+    abilityDesc: '+22% ampiezza zona gol sull\'anello TIRA!',
+    bio: 'Leggenda mitologica dei campetti di provincia: segna di punta, di stinco e persino bendato. I portieri cambiano provincia quando entra in area.',
+  },
 ];
 
+// Formula doppia: max(base * 1.55^n, peakBaseIncomePerSec * incomeSecondsMult)
 export const PACKS = [
   {
     id: 'oratorio',
@@ -504,8 +626,9 @@ export const PACKS = [
     icon: '🎒',
     desc: 'Talenti grezzi pescati tra un torneo parrocchiale e l\'altro.',
     baseCost: 250,
+    incomeSecondsMult: 20,
     accent: '#22c55e',
-    secretChance: 0.002,
+    secretChance: 0.0005, // 0,05%
     weights: { comune: 70, raro: 24, epico: 5.5, leggenda: 0.5 },
   },
   {
@@ -514,8 +637,9 @@ export const PACKS = [
     icon: '🔭',
     desc: 'Relazioni segrete dai migliori campi di provincia.',
     baseCost: 11000,
+    incomeSecondsMult: 55,
     accent: '#38bdf8',
-    secretChance: 0.008,
+    secretChance: 0.0015, // 0,15%
     weights: { comune: 32, raro: 47, epico: 18, leggenda: 3 },
   },
   {
@@ -524,8 +648,9 @@ export const PACKS = [
     icon: '💼',
     desc: 'Solo fuoriclasse pronti a spaccare gli spareggi.',
     baseCost: 220000,
+    incomeSecondsMult: 120,
     accent: '#f59e0b',
-    secretChance: 0.022,
+    secretChance: 0.005, // 0,50%
     weights: { comune: 0, raro: 38, epico: 46, leggenda: 16 },
   },
 ];
@@ -544,25 +669,40 @@ export const BONUS_TYPES = [
   { id: 'matchSec', label: 'Tempo Spareggio', unit: 's', baseValue: 0.4 },
 ];
 
+// Dizionario espanso v3.5: 54 nomi × 74 soprannomi ironici × 62 cognomi (anti-duplicato soprannome in rosa!)
 export const FIRST_NAMES = [
-  'Ciccio', 'Gino', 'Totò', 'Beppe', 'Nando', 'Sandrino', 'Mimmo',
-  'Lello', 'Franco', 'Rino', 'Tarcisio', 'Gennaro', 'Piero', 'Loris',
-  'Mirco', 'Pasquale', 'Saverio', 'Enzo', 'Ugo', 'Cosimo', 'Alfonso', 'Remo',
+  'Ciccio', 'Gino', 'Totò', 'Beppe', 'Nando', 'Sandrino', 'Mimmo', 'Lello', 'Franco', 'Rino',
+  'Tarcisio', 'Gennaro', 'Piero', 'Loris', 'Mirco', 'Pasquale', 'Saverio', 'Enzo', 'Ugo', 'Cosimo',
+  'Alfonso', 'Remo', 'Tonino', 'Carmine', 'Gigi', 'Aldo', 'Nino', 'Bruno', 'Ettore', 'Ivo',
+  'Lino', 'Pino', 'Tino', 'Sandro', 'Vito', 'Orazio', 'Ezio', 'Fabio', 'Mauro', 'Dario',
+  'Renzo', 'Guido', 'Amedeo', 'Fausto', 'Fulvio', 'Rocco', 'Biagio', 'Ciro', 'Filippo', 'Tiziano',
+  'Valerio', 'Walter', 'Lucio', 'Claudio',
 ];
 
 export const NICKNAMES = [
-  'Il Bomber', 'Gamba di Legno', 'Tacco Volante', 'Senza Polmoni',
-  'La Saracinesca', 'El Tractor', 'Piede di Ghisa', 'Il Geometra',
-  'Scivolata Facile', 'Re del Calcetto', 'Il Pendolino', 'Testa di Marmo',
-  'Il Faraone', 'Muro di Gomma', 'Maglia Sudata', 'Il Pirata',
-  'Sforbiciata', 'Il Professore', 'Palla Lunga', 'Cuore di Fango',
+  'Il Bomber', 'Gamba di Legno', 'Tacco Volante', 'Senza Polmoni', 'La Saracinesca', 'El Tractor',
+  'Piede di Ghisa', 'Il Geometra', 'Scivolata Facile', 'Re del Calcetto', 'Il Pendolino', 'Testa di Marmo',
+  'Il Faraone', 'Muro di Gomma', 'Maglia Sudata', 'Il Pirata', 'Sforbiciata', 'Il Professore',
+  'Palla Lunga', 'Cuore di Fango', 'Punta di Ferra', 'Tiro a Giro', 'Il Falco', 'Senza Tacchetti',
+  'Re del Bar Sport', 'Panzerotto', 'Il Chirurgo', 'Palo Interno', 'Catenaccio', 'Sponda d\'Oro',
+  'Il Treno', 'Gomito Alto', 'Il Ragioniere', 'Tacco e Punta', 'Finta di Corpo', 'Il Martello',
+  'Calzino Basso', 'Il Sarto', 'Palla o Gamba', 'L\'Artigiano', 'Mezzala Pazzo', 'Il Cobra',
+  'Mina Vagante', 'Il Mastino', 'Piede Fatato', 'Sgasata', 'Il Gladiatore', 'Tunnel Facile',
+  'Cross Sbagliato', 'Il Vichingo', 'La Roccia', 'Piede Quadrato', 'Il Folletto', 'Tackle Selvaggio',
+  'Il Bisonte', 'Bomba da Fuori', 'Il Mago', 'Goleador', 'Il Leone', 'Fuorigioco',
+  'Il Fantasista', 'Senza Freni', 'Il Regista', 'Colpo di Tacco', 'Il Bulldog', 'Piede Caldo',
+  'La Freccia', 'Il Guerriero', 'Rovesciata', 'Il Barone', 'Palla al Piede', 'Il Capitano',
+  'Tiro al Volo', 'Spazzata Lunga',
 ];
 
 export const LAST_NAMES = [
-  'Esposito', 'Brambilla', 'Rizzo', 'Ferretti', 'Conti', 'Caputo',
-  'Lombardi', 'Gallo', 'Pellegrini', 'Mancini', 'Santoro', 'De Luca',
-  'Marchetti', 'Puglisi', 'Fumagalli', 'Bianchi', 'Cattaneo', 'Russo',
-  'Caruso', 'Moretti', 'Coppola', 'Bernardi',
+  'Esposito', 'Brambilla', 'Rizzo', 'Ferretti', 'Conti', 'Caputo', 'Lombardi', 'Gallo', 'Pellegrini', 'Mancini',
+  'Santoro', 'De Luca', 'Marchetti', 'Puglisi', 'Fumagalli', 'Bianchi', 'Cattaneo', 'Russo', 'Caruso', 'Moretti',
+  'Coppola', 'Bernardi', 'Ferrara', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Bruno', 'Gatti',
+  'Barbieri', 'Fontana', 'Mariani', 'Longo', 'Leone', 'Martinelli', 'Vitale', 'Serra', 'De Santis', 'Rinaldi',
+  'Amato', 'Messina', 'Bellini', 'Basile', 'Fabbri', 'Riva', 'Donati', 'Piras', 'Sanna', 'Farina',
+  'Monti', 'Grasso', 'Testa', 'Villa', 'Sala', 'Ruggiero', 'Sorrentino', 'Piazza', 'Fiore', 'Neri',
+  'Palumbo', 'Benedetti',
 ];
 
 export const FLASH_EVENTS = [

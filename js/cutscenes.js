@@ -43,13 +43,19 @@ export class CutsceneManager {
   }
 
   /**
-   * 1. WALKOUT EPICO SEGRETI (3.5s) per Francesco Porcotrio & Loma
+   * 1. WALKOUT EPICO SEGRETI (3.5s) per tutte e 4 le Leggende Segrete!
    */
   playSecretWalkout(result, { onShake, onDone }) {
     this.close();
     const { player, outcome, refundAmount } = result;
-    const isFire = player.aura === 'fire';
-    const auraClass = isFire ? 'walkout-fire' : 'walkout-electric';
+    const aura = player.aura || 'fire';
+    const auraMeta = {
+      fire: { cls: 'walkout-fire', sub: '🔥 FIAMMA DI PROVINCIA 🔥' },
+      electric: { cls: 'walkout-electric', sub: '⚡ MURAGLIA ELETTRICA ⚡' },
+      granite: { cls: 'walkout-granite', sub: '🪨 MURO DI GRANITO 🪨' },
+      emerald: { cls: 'walkout-emerald', sub: '💨 TURBO SMERALDO 💨' },
+    }[aura] || { cls: 'walkout-fire', sub: '🌟 LEGGENDA ASSOLUTA 🌟' };
+    const auraClass = auraMeta.cls;
     const rar = RARITIES.segreto;
     let finished = false;
 
@@ -80,7 +86,7 @@ export class CutsceneManager {
         if (!c) return;
         c.innerHTML = `
           <div class="walkout-banner">★ LEGGENDA SEGRETA ★</div>
-          <div class="walkout-sub">${isFire ? '🔥 FIAMMA DI PROVINCIA 🔥' : '⚡ MURAGLIA ELETTRICA ⚡'}</div>
+          <div class="walkout-sub">${auraMeta.sub}</div>
         `;
       }, 850)
     );

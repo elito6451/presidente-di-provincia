@@ -5,10 +5,21 @@ import {
   getBoostRemainingSec,
   isInvasionBoostActive,
   getInvasionBoostRemainingSec,
+  isPolpettaBoostActive,
+  getPolpettaBoostRemainingSec,
   canStartSpareggio,
+  canStartNewSeason,
   canPrestige,
   getTotalFreePacks,
+  syncPeakIncomeTracking,
 } from '../state.js';
+
+function formatClubDisplayName(state) {
+  const stars = state.seasonStars || 0;
+  if (stars <= 0) return state.clubName;
+  const starBadge = stars <= 3 ? '★'.repeat(stars) : `★×${stars}`;
+  return `${state.clubName} ${starBadge}`;
+}
 
 export class HudController {
   constructor() {
@@ -17,6 +28,7 @@ export class HudController {
     this.elIncome = document.getElementById('hud-income');
     this.elTap = document.getElementById('hud-tap');
     this.elInvBoost = document.getElementById('hud-inv-boost');
+    this.elPolpettaBoost = document.getElementById('hud-polpetta-boost');
     this.elLeague = document.getElementById('hud-league');
     this.elBoostBtn = document.getElementById('btn-boost');
     this.elBoostLabel = document.getElementById('btn-boost-label');
@@ -58,6 +70,7 @@ export class HudController {
   update(state, matchCtrl) {
     const now = Date.now();
     const stats = computeStats(state, now);
+    syncPeakIncomeTracking(state, stats);
 
     this._setText('money', this.elMoney, formatMoney(state.money));
     this._setText('tokens', this.elTokens, `🪙 ${formatNumber(state.goldTokens || 0)}`);
@@ -84,8 +97,18 @@ export class HudController {
       this.elInvBoost?.classList.add('hidden');
     }
 
-    // Chip Club personalizzato
-    this._setText('clubName', this.elClubName, state.clubName);
+    // Boost morale ×1,25 da Polpetta
+    if (isPolpettaBoostActive(state, now)) {
+      const rem = Math.ceil(getPolpettaBoostRemainingSec(state, now));
+      this.elPolpettaBoost?.classList.remove('hidden');
+      this._setText('polpB', this.elPolpettaBoost, `🐹 ×1,25 ${rem}s`);
+    } else {
+      this.elPolpettaBoost?.classList.add('hidden');
+    }
+
+    // Chip Club personalizzato (con Stelle d'Oro ★ delle Stagioni)
+    const displayClub = formatClubDisplayName(state);
+    this._setText('clubName', this.elClubName, displayClub);
     const swatchCss = `linear-gradient(90deg, ${state.clubColors.primary} 50%, ${state.clubColors.secondary} 50%)`;
     if (this._last.swatchCss !== swatchCss) {
       this._last.swatchCss = swatchCss;
@@ -129,7 +152,7 @@ export class HudController {
       this.elBadgeScouting.classList.add('hidden');
     }
 
-    if (canStartSpareggio(state) && !matchCtrl.active) {
+    if ((canStartSpareggio(state) || canStartNewSeason(state)) && !matchCtrl.active) {
       this.elBadgeSpareggio.classList.remove('hidden');
     } else {
       this.elBadgeSpareggio.classList.add('hidden');
@@ -148,7 +171,7 @@ export class HudController {
 
       const minLabel = matchCtrl.isPenalties ? 'RIG' : `${matchCtrl.minute}'`;
       this._setText('tvMin', this.elTvMin, minLabel);
-      this._setText('tvHome', this.elTvHomeName, state.clubName);
+      this._setText('tvHome', this.elTvHomeName, displayClub);
       this._setText('tvAway', this.elTvAwayName, matchCtrl.opponent);
       this._setText('tvScore', this.elTvScore, `${matchCtrl.myGoals} - ${matchCtrl.oppGoals}`);
 

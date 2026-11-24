@@ -1186,7 +1186,7 @@ textarea {
 
 .trophy-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
 }
 
@@ -1887,6 +1887,14 @@ textarea {
   background: radial-gradient(circle at center, #0c4a6e 0%, #081c36 58%, #04070f 100%);
 }
 
+.walkout-granite {
+  background: radial-gradient(circle at center, #78350f 0%, #271506 58%, #07070c 100%);
+}
+
+.walkout-emerald {
+  background: radial-gradient(circle at center, #065f46 0%, #04241d 58%, #040910 100%);
+}
+
 .walkout-fx {
   position: absolute;
   inset: 0;
@@ -2132,4 +2140,269 @@ textarea {
   font-size: 12px;
   font-weight: 800;
   color: #fde047;
+}
+
+/* v3.5: POLPETTA PILL, FORMAZIONE 5 SLOT, PANCHINA, SFIDE, STAGIONI & PROFILO PRESIDENTE */
+.polpetta-boost-pill {
+  font-size: 10px;
+  font-weight: 900;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(244, 114, 182, 0.22);
+  border: 1px solid rgba(249, 168, 212, 0.55);
+  color: #fbcfe8;
+}
+
+.formation-card {
+  background: linear-gradient(165deg, rgba(16, 68, 42, 0.45), rgba(11, 20, 36, 0.92));
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-radius: 14px;
+  padding: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.formation-hint {
+  font-size: 10.5px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.formation-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+
+.formation-slot {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 76px;
+  padding: 6px 3px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-subtle);
+  background: rgba(9, 17, 29, 0.8);
+  color: #f8fafc;
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.1s ease;
+}
+
+.formation-slot:active {
+  transform: scale(0.96);
+}
+
+.formation-slot.empty {
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.slot-top-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2px;
+}
+
+.slot-role-badge {
+  font-size: 8.5px;
+  font-weight: 900;
+  padding: 1px 4px;
+  border-radius: 5px;
+  background: rgba(148, 163, 184, 0.22);
+  color: #e2e8f0;
+}
+
+.slot-pwr {
+  font-size: 8.5px;
+  font-weight: 900;
+  color: #fde047;
+}
+
+.slot-name {
+  font-size: 9.5px;
+  font-weight: 900;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slot-stars {
+  font-size: 9px;
+  color: #fbbf24;
+  line-height: 1;
+}
+
+.slot-bonus {
+  font-size: 8px;
+  color: #86efac;
+  font-weight: 800;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slot-empty-txt {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #94a3b8;
+  line-height: 1.25;
+}
+
+.slot-empty-txt span {
+  font-size: 8.5px;
+  color: #38bdf8;
+}
+
+.bench-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.bench-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bench-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.mini-btn.fuse {
+  background: rgba(168, 85, 247, 0.24);
+  border-color: rgba(192, 132, 252, 0.55);
+  color: #e9d5ff;
+}
+
+.mini-btn.sell {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+}
+
+.slot-picker-current {
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  border-radius: 12px;
+  padding: 9px;
+}
+
+.slot-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.slot-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(9, 17, 29, 0.72);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 7px 8px;
+}
+
+.challenge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.challenge-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.challenge-card.done {
+  border-color: rgba(74, 222, 128, 0.48);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.challenge-ico {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.challenge-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.challenge-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.challenge-name {
+  font-size: 12px;
+  font-weight: 900;
+  color: #f8fafc;
+}
+
+.challenge-desc {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.cta-btn.season-btn {
+  background: linear-gradient(135deg, #a855f7, #f59e0b);
+  box-shadow: 0 6px 18px rgba(168, 85, 247, 0.4);
+}
+
+.president-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-color: rgba(250, 204, 21, 0.42);
+  background: linear-gradient(160deg, rgba(30, 41, 74, 0.92), rgba(13, 21, 38, 0.96));
+}
+
+.album-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.album-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 10.5px;
+  color: #cbd5e1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.album-pill strong {
+  color: #fef08a;
 }

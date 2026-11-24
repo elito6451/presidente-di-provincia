@@ -72,8 +72,40 @@ export class StadiumCanvas {
     });
   }
 
-  syncTopPlayers(topFive) {
-    this.entities.syncTopPlayers(topFive);
+  syncTopPlayers(starters) {
+    this.entities.syncTopPlayers(starters);
+  }
+
+  tryHitPolpettaPx(clickX, clickY) {
+    const g = getPitchGeometry(this.width, this.height);
+    const pos = this.entities.getPolpettaPos(g);
+    return Math.hypot(clickX - pos.x, clickY - pos.y) <= 28;
+  }
+
+  triggerPolpettaPet(activatedBoost = true) {
+    this.entities.petPolpettaVisual();
+    this.entities.spawnTapParticles(0.06, 0.80, true, 5);
+    this.entities.spawnFloatingText(
+      0.16,
+      0.72,
+      activatedBoost ? '🐹 Polpetta! ×1,25' : '🐹 Squittio!',
+      {
+        color: '#f9a8d4',
+        scale: 1.08,
+        duration: 1.2,
+      }
+    );
+  }
+
+  triggerPsconBlock(nx = 0.18, ny = 0.48) {
+    this.entities.launchSaveDeflection(nx, ny);
+    this.triggerShake(6.2, 0.2);
+    this.entities.spawnFloatingText(0.28, 0.34, '🪨 MURO DI GRANITO!', {
+      color: '#fbbf24',
+      scale: 1.28,
+      duration: 1.3,
+    });
+    this.entities.spawnCrowdBubble('INVALICABILE!', { color: '#fbbf24' });
   }
 
   triggerShake(intensity = 5, duration = 0.18) {
@@ -122,6 +154,7 @@ export class StadiumCanvas {
     );
     if (isPlayerGoal) {
       this.entities.spawnCrowdBubble('GOOOL!', { color: '#4ade80' });
+      this.entities.celebratePolpetta(2.0);
     } else {
       this.entities.spawnCrowdBubble('NOOO!', { color: '#f87171' });
     }
@@ -203,6 +236,7 @@ export class StadiumCanvas {
   celebratePromotion(isEuropean = false) {
     this.entities.spawnConfetti(105);
     this.entities.env.olaIntensity = 1;
+    this.entities.celebratePolpetta(3.0);
     this.triggerShake(6.5, 0.22);
     this.entities.spawnCrowdBubble('CAMPIONI!!', { color: '#fde047' });
     if (isEuropean) {
@@ -232,7 +266,7 @@ export class StadiumCanvas {
     this.entities.update(dt, t, { leagueIndex, onMiniGoal, isMatchActive });
   }
 
-  render(leagueIndex, t, { flashEvent, matchActions = [], clubInfo, upgrades = {}, isMatchActive = false, oppColors }) {
+  render(leagueIndex, t, { flashEvent, matchActions = [], clubInfo, upgrades = {}, isMatchActive = false, oppColors, polpettaReady = false }) {
     const ctx = this.ctx;
     const w = this.width;
     const h = this.height;
@@ -255,6 +289,7 @@ export class StadiumCanvas {
       clubInfo,
       isMatchActive,
       oppColors,
+      polpettaReady,
     });
     renderPrestigeHelicopter(ctx, w, h, this.helicopter, t);
     ctx.restore();

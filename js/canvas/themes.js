@@ -19,11 +19,11 @@ function drawSlowClouds(ctx, w, topY, t, color = 'rgba(226, 232, 240, 0.14)') {
 
 export function getPitchGeometry(w, h) {
   const topY = h * 0.305;
-  const bottomY = h * 0.92;
-  const topLeft = w * 0.125;
-  const topRight = w * 0.875;
-  const bottomLeft = w * 0.045;
-  const bottomRight = w * 0.955;
+  const bottomY = h * 0.885;
+  const topLeft = w * 0.135;
+  const topRight = w * 0.865;
+  const bottomLeft = w * 0.085;
+  const bottomRight = w * 0.915;
   return {
     w,
     h,
@@ -981,6 +981,216 @@ function renderNotteEuropea(ctx, w, h, g, t, env, clubInfo) {
   drawRoofStructure(ctx, w, { style: 'futuristic', accent: '#38bdf8', lights: 4 });
 }
 
+// 5 — MONDIALE PER CLUB (Arena monumentale oro/bianca assolata, pubblico internazionale)
+function renderMondialePerClub(ctx, w, h, g, t, env, clubInfo) {
+  const skyGrad = ctx.createLinearGradient(0, 12, 0, g.topY + 12);
+  skyGrad.addColorStop(0, '#0f172a');
+  skyGrad.addColorStop(0.42, '#1e3a5f');
+  skyGrad.addColorStop(1, '#9a6b24');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Anello monumentale oro-bianco
+  const standGrad = ctx.createLinearGradient(0, 16, 0, g.topY - 12);
+  standGrad.addColorStop(0, '#1e293b');
+  standGrad.addColorStop(0.55, '#334155');
+  standGrad.addColorStop(1, '#475569');
+  ctx.fillStyle = standGrad;
+  ctx.fillRect(0, 16, w, g.topY - 24);
+
+  // Fascia architettonica dorata
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillRect(0, 16 + (g.topY - 26) * 0.45, w, 3.2);
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(0, 16 + (g.topY - 26) * 0.45 + 3.2, w, 1.5);
+
+  // Pubblico internazionale multicolore
+  const worldCols = ['#fde047', '#38bdf8', '#4ade80', '#f87171', '#f8fafc', clubInfo.primary, clubInfo.secondary];
+  for (let i = 0; i < 185; i++) {
+    const fx = 0.02 + ((i * 23) % 96) / 100;
+    const ola = getOlaOffset(fx, env);
+    const sx = w * fx;
+    const sy = 20 + (i % 6) * ((g.topY - 38) / 5.4) - ola + Math.sin(t * 5.2 + i) * 1.0;
+    ctx.fillStyle = worldCols[i % worldCols.length];
+    ctx.fillRect(sx, sy, 2.9, 2.9);
+  }
+  drawCrowdFlagsAndScarves(ctx, w, g.topY, t, env, clubInfo, 9);
+
+  drawScrollingLED(ctx, g, t, {
+    bg: '#78350f',
+    textCol: '#fef08a',
+    message: `MONDIALE PER CLUB  •  ${clubInfo.name.toUpperCase()}  •  WORLD FINAL LIVE  •  COPPA INTERCONTINENTALE`,
+  });
+
+  // Erba da finale mondiale a strisce brillanti
+  const stripes = 14;
+  for (let i = 0; i < stripes; i++) {
+    tracePitchQuad(ctx, g, i / stripes, 0, (i + 1) / stripes + 0.002, 1);
+    ctx.fillStyle = i % 2 === 0 ? '#16a34a' : '#117c38';
+    ctx.fill();
+  }
+
+  drawTurfTexture(ctx, g, 0.12);
+
+  // Cornice perimetrale dorata
+  ctx.save();
+  tracePitchQuad(ctx, g, -0.014, -0.018, 1.014, 1.018);
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.62)';
+  ctx.lineWidth = 2.4;
+  ctx.shadowColor = '#fbbf24';
+  ctx.shadowBlur = 10;
+  ctx.stroke();
+  ctx.restore();
+
+  drawPerspectiveLines(ctx, g, { stroke: 'rgba(255, 255, 255, 0.96)', lineWidth: 2.1 });
+  drawCornerFlags(ctx, g, t, clubInfo);
+  drawGoals3D(ctx, g, {
+    glow: false,
+    netBulgeLeft: env.netBulgeLeft,
+    netBulgeRight: env.netBulgeRight,
+  });
+
+  // Fasci di luce dorati caldi dai fari sotto la tettoia
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 4; i++) {
+    const fx = w * ((i + 0.5) / 4);
+    const fy = 17;
+    const tx = w * (0.18 + i * 0.21);
+    const ty = h * 0.88;
+    const beam = ctx.createLinearGradient(fx, fy, tx, ty);
+    beam.addColorStop(0, 'rgba(254, 240, 138, 0.24)');
+    beam.addColorStop(0.55, 'rgba(251, 191, 36, 0.08)');
+    beam.addColorStop(1, 'rgba(251, 191, 36, 0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.moveTo(fx - 8, fy);
+    ctx.lineTo(fx + 8, fy);
+    ctx.lineTo(tx + w * 0.19, ty);
+    ctx.lineTo(tx - w * 0.19, ty);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  drawRoofStructure(ctx, w, { style: 'futuristic', accent: '#fbbf24', lights: 4 });
+}
+
+// 6 — SUPERLEGA GALATTICA (Nebulosa cosmica viola/oro, stelle orbitanti, stadio del futuro)
+function renderSuperlegaGalattica(ctx, w, h, g, t, env, clubInfo) {
+  const bgGrad = ctx.createLinearGradient(0, 12, w, h);
+  bgGrad.addColorStop(0, '#070414');
+  bgGrad.addColorStop(0.35, '#1e0b3a');
+  bgGrad.addColorStop(0.7, '#0b1030');
+  bgGrad.addColorStop(1, '#040612');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Nebulosa cosmica soffusa sullo sfondo alto
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const neb1 = ctx.createRadialGradient(w * 0.25, g.topY * 0.52, 6, w * 0.25, g.topY * 0.52, w * 0.44);
+  neb1.addColorStop(0, 'rgba(192, 132, 252, 0.28)');
+  neb1.addColorStop(0.6, 'rgba(124, 58, 237, 0.08)');
+  neb1.addColorStop(1, 'rgba(124, 58, 237, 0)');
+  ctx.fillStyle = neb1;
+  ctx.fillRect(0, 14, w, g.topY + 20);
+
+  const neb2 = ctx.createRadialGradient(w * 0.78, g.topY * 0.48, 6, w * 0.78, g.topY * 0.48, w * 0.42);
+  neb2.addColorStop(0, 'rgba(251, 191, 36, 0.24)');
+  neb2.addColorStop(0.6, 'rgba(244, 114, 182, 0.08)');
+  neb2.addColorStop(1, 'rgba(244, 114, 182, 0)');
+  ctx.fillStyle = neb2;
+  ctx.fillRect(0, 14, w, g.topY + 20);
+  ctx.restore();
+
+  // Stelle cosmiche scintillanti + spalti olografici
+  for (let i = 0; i < 165; i++) {
+    const fx = 0.02 + ((i * 41) % 96) / 100;
+    const ola = getOlaOffset(fx, env);
+    const sx = w * fx;
+    const sy = 18 + (i % 6) * ((g.topY - 36) / 5.4) - ola;
+    const tw = 0.4 + 0.6 * Math.sin(t * 5 + i * 1.7);
+    ctx.fillStyle =
+      i % 4 === 0
+        ? `rgba(253, 224, 71, ${tw.toFixed(2)})`
+        : i % 4 === 1
+          ? `rgba(232, 121, 249, ${(tw * 0.9).toFixed(2)})`
+          : `rgba(125, 211, 252, ${(tw * 0.85).toFixed(2)})`;
+    ctx.fillRect(sx, sy, 2.5, 2.5);
+  }
+
+  // Piccole stelle dorate orbitanti
+  for (let i = 0; i < 6; i++) {
+    const ox = w * (0.14 + i * 0.145) + Math.cos(t * 1.4 + i) * 7;
+    const oy = 25 + Math.sin(t * 1.9 + i * 1.3) * 6;
+    ctx.fillStyle = 'rgba(254, 240, 138, 0.85)';
+    ctx.beginPath();
+    ctx.arc(ox, oy, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawCrowdFlagsAndScarves(ctx, w, g.topY, t, env, clubInfo, 9);
+
+  drawScrollingLED(ctx, g, t, {
+    bg: '#3b0764',
+    textCol: '#fde047',
+    message: `★ SUPERLEGA GALATTICA ★  •  ${clubInfo.name.toUpperCase()}  •  OLIMPO DEL CALCIO  •  LIVE`,
+  });
+
+  // Erba cosmica smeraldo-blu
+  const stripes = 14;
+  for (let i = 0; i < stripes; i++) {
+    tracePitchQuad(ctx, g, i / stripes, 0, (i + 1) / stripes + 0.002, 1);
+    ctx.fillStyle = i % 2 === 0 ? '#0d8a5e' : '#096e4b';
+    ctx.fill();
+  }
+
+  drawTurfTexture(ctx, g, 0.13);
+
+  // Perimetro neon oro/viola
+  ctx.save();
+  tracePitchQuad(ctx, g, -0.016, -0.02, 1.016, 1.02);
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.72)';
+  ctx.lineWidth = 2.6;
+  ctx.shadowColor = '#c084fc';
+  ctx.shadowBlur = 14;
+  ctx.stroke();
+  ctx.restore();
+
+  drawPerspectiveLines(ctx, g, { stroke: 'rgba(254, 249, 195, 0.94)', lineWidth: 2.1 });
+  drawCornerFlags(ctx, g, t, clubInfo);
+  drawGoals3D(ctx, g, {
+    glow: true,
+    netBulgeLeft: env.netBulgeLeft,
+    netBulgeRight: env.netBulgeRight,
+  });
+
+  // Fasci galattici rotanti oro, magenta e ciano
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const beamOrigins = [
+    { x: w * 0.14, y: 17, phase: 0, col: 'rgba(250, 204, 21, 0.17)' },
+    { x: w * 0.5, y: 17, phase: 2.1, col: 'rgba(232, 121, 249, 0.15)' },
+    { x: w * 0.86, y: 17, phase: 4.2, col: 'rgba(56, 189, 248, 0.16)' },
+  ];
+  for (const b of beamOrigins) {
+    const angle = Math.PI * 0.5 + Math.sin(t * 0.9 + b.phase) * 0.52;
+    const len = h * 1.1;
+    const spread = 0.15;
+    ctx.fillStyle = b.col;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x + Math.cos(angle - spread) * len, b.y + Math.sin(angle - spread) * len);
+    ctx.lineTo(b.x + Math.cos(angle + spread) * len, b.y + Math.sin(angle + spread) * len);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  drawRoofStructure(ctx, w, { style: 'futuristic', accent: '#facc15', lights: 4 });
+}
+
 export function renderStadiumTheme(ctx, leagueIndex, w, h, g, t, env, clubInfo, upgrades = {}) {
   switch (leagueIndex) {
     case 0:
@@ -999,8 +1209,14 @@ export function renderStadiumTheme(ctx, leagueIndex, w, h, g, t, env, clubInfo, 
       renderSerieA(ctx, w, h, g, t, env, clubInfo);
       break;
     case 4:
-    default:
       renderNotteEuropea(ctx, w, h, g, t, env, clubInfo);
+      break;
+    case 5:
+      renderMondialePerClub(ctx, w, h, g, t, env, clubInfo);
+      break;
+    case 6:
+    default:
+      renderSuperlegaGalattica(ctx, w, h, g, t, env, clubInfo);
       break;
   }
 

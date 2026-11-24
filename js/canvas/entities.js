@@ -73,13 +73,40 @@ export class StadiumEntities {
       olaPhase: 0,
       tapComboTimestamps: [],
     };
+
+    // Mascotte criceto nero con petto bianco: Polpetta!
+    this.polpetta = {
+      celebrateTimer: 0,
+      heartTimer: 0,
+    };
   }
 
-  syncTopPlayers(topFive) {
+  getPolpettaPos(g) {
+    const ny = 0.80;
+    const leftEdge = g.topLeft + (g.bottomLeft - g.topLeft) * ny;
+    return {
+      x: Math.max(17, leftEdge * 0.50),
+      y: g.topY + g.height * ny,
+    };
+  }
+
+  celebratePolpetta(duration = 2.0) {
+    this.polpetta.celebrateTimer = Math.max(this.polpetta.celebrateTimer, duration);
+    this.polpetta.heartTimer = Math.max(this.polpetta.heartTimer, duration);
+  }
+
+  petPolpettaVisual() {
+    this.polpetta.celebrateTimer = 2.2;
+    this.polpetta.heartTimer = 2.4;
+  }
+
+  syncTopPlayers(starters) {
     const next = [];
-    for (let i = 0; i < topFive.length; i++) {
-      const data = topFive[i];
-      const slot = FORMATION_SLOTS[i] || { x: 0.5, y: 0.5 };
+    for (let i = 0; i < starters.length; i++) {
+      const entry = starters[i];
+      const data = entry && entry.player ? entry.player : entry;
+      if (!data) continue;
+      const slot = (entry && entry.slotDef) || FORMATION_SLOTS[i] || { x: 0.5, y: 0.5 };
       const existing = this.players.find((p) => p.id === data.id);
       if (existing) {
         existing.data = data;
@@ -168,7 +195,7 @@ export class StadiumEntities {
 
     this.registerTapCombo();
     this.spawnTapParticles(cx, cy, isCrit, leagueIndex);
-    if (isCrit && leagueIndex === 4) {
+    if (isCrit && leagueIndex >= 4) {
       this.spawnFirework(cx, Math.max(0.08, cy - 0.2));
     }
   }
@@ -206,7 +233,7 @@ export class StadiumEntities {
       this.triggerNetBulge(side, 1.18);
       this.env.olaIntensity = 1;
       this.spawnTapParticles(endX, targetNy, true, leagueIndex);
-      if (leagueIndex === 4) {
+      if (leagueIndex >= 4) {
         this.spawnFirework(side === 'right' ? 0.84 : 0.18, 0.18);
         this.spawnFirework(0.5, 0.14);
       }
@@ -239,6 +266,8 @@ export class StadiumEntities {
       ['#38bdf8', '#4ade80', '#facc15'],
       ['#c084fc', '#fde047', '#ffffff'],
       ['#38bdf8', '#fde047', '#f472b6'],
+      ['#fbbf24', '#ffffff', '#4ade80'],
+      ['#facc15', '#e879f9', '#38bdf8'],
     ];
     const cols = palettes[leagueIndex] || palettes[0];
     const count = isCrit ? 15 : leagueIndex === 0 ? 10 : 7;
@@ -326,10 +355,16 @@ export class StadiumEntities {
       this.env.netVelRight = 0;
     }
 
-    // 2. Onda "Ola"
+    // 2. Onda "Ola" + timer animazione Polpetta
     if (this.env.olaIntensity > 0) {
       this.env.olaPhase += dt * 0.95;
       this.env.olaIntensity = Math.max(0, this.env.olaIntensity - dt * 0.38);
+    }
+    if (this.polpetta.celebrateTimer > 0) {
+      this.polpetta.celebrateTimer = Math.max(0, this.polpetta.celebrateTimer - dt);
+    }
+    if (this.polpetta.heartTimer > 0) {
+      this.polpetta.heartTimer = Math.max(0, this.polpetta.heartTimer - dt);
     }
 
     // 3. Cane randagio in Terza Categoria
@@ -452,7 +487,7 @@ export class StadiumEntities {
           b.vz = 118;
           b.glowTimer = 0.55;
           this.triggerNetBulge('right', 0.75);
-          if (leagueIndex === 4) {
+          if (leagueIndex >= 4) {
             this.spawnFirework(0.82, 0.2);
             this.spawnFirework(0.24, 0.18);
           }
@@ -539,6 +574,72 @@ export class StadiumEntities {
         ctx.arc(ex, ey, 1.8 * s, 0, Math.PI * 2);
         ctx.fill();
       }
+      return;
+    }
+
+    if (auraType === 'granite') {
+      // Aura Muro di Granito ambra/bronzo per Tumas Pscon
+      const grad = ctx.createRadialGradient(0, 8 * s, 2, 0, 8 * s, auraR);
+      grad.addColorStop(0, 'rgba(253, 230, 138, 0.72)');
+      grad.addColorStop(0.5, 'rgba(217, 119, 6, 0.45)');
+      grad.addColorStop(0.85, 'rgba(120, 53, 15, 0.22)');
+      grad.addColorStop(1, 'rgba(120, 53, 15, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(0, 8 * s, auraR, auraR * 0.48, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Esagono difensivo pulsante ai piedi
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI * 2 * i) / 6 + t * 0.6;
+        const hx = Math.cos(a) * 14 * s * pulse;
+        const hy = 8 * s + Math.sin(a) * 6.2 * s * pulse;
+        if (i === 0) ctx.moveTo(hx, hy);
+        else ctx.lineTo(hx, hy);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      // Frammenti dorati di granito orbitanti
+      for (let i = 0; i < 3; i++) {
+        const a = t * 2.4 + (Math.PI * 2 * i) / 3;
+        ctx.fillStyle = '#fde68a';
+        ctx.fillRect(Math.cos(a) * 11 * s - 1.5, (2 + Math.sin(a) * 4) * s, 3 * s, 3 * s);
+      }
+      return;
+    }
+
+    if (auraType === 'emerald') {
+      // Aura Turbo Smeraldo per Vavelocino
+      const grad = ctx.createRadialGradient(0, 8 * s, 2, 0, 8 * s, auraR);
+      grad.addColorStop(0, 'rgba(167, 243, 208, 0.78)');
+      grad.addColorStop(0.5, 'rgba(16, 185, 129, 0.46)');
+      grad.addColorStop(0.85, 'rgba(5, 150, 105, 0.22)');
+      grad.addColorStop(1, 'rgba(5, 150, 105, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(0, 8 * s, auraR, auraR * 0.48, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 8 * s, 14.5 * s * pulse, 6 * s * pulse, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Scie di velocità verdi orbitanti
+      ctx.strokeStyle = 'rgba(167, 243, 208, 0.9)';
+      ctx.lineWidth = 1.6;
+      const ang = t * 7.5 + phase;
+      ctx.beginPath();
+      ctx.arc(0, 2 * s, 12 * s, ang, ang + 1.0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 2 * s, 12 * s, ang + Math.PI, ang + Math.PI + 1.0);
+      ctx.stroke();
       return;
     }
 
@@ -898,12 +999,144 @@ export class StadiumEntities {
     }
   }
 
-  render(ctx, w, h, g, t, { flashEvent, matchActions = [], clubInfo, isMatchActive = false, oppColors = ['#3b82f6', '#facc15'] }) {
-    // 1. Giocatori (nostri Top 5 + squadra avversaria + portiere rivale) ordinati per profondità ny
+  // Mascotte Polpetta: criceto paffuto nero col petto bianco e sciarpa del club a bordocampo!
+  _renderPolpetta(ctx, g, t, clubInfo, { isReady = false, isMatchActive = false } = {}) {
+    const pos = this.getPolpettaPos(g);
+    const celebrating = this.polpetta.celebrateTimer > 0;
+    const bounce = celebrating
+      ? Math.abs(Math.sin(t * 16)) * 6.5
+      : Math.abs(Math.sin(t * 3.4)) * 1.6;
+
+    ctx.save();
+    ctx.translate(pos.x, pos.y);
+
+    // Alone delicato quando pronta per carezze (solo fuori match!)
+    if (isReady && !isMatchActive) {
+      const pulse = 0.88 + Math.sin(t * 5) * 0.14;
+      const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 18 * pulse);
+      glow.addColorStop(0, 'rgba(244, 114, 182, 0.34)');
+      glow.addColorStop(0.65, 'rgba(250, 204, 21, 0.16)');
+      glow.addColorStop(1, 'rgba(244, 114, 182, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Ombra morbida a terra
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+    ctx.beginPath();
+    ctx.ellipse(0, 9.5, celebrating ? 7.5 : 9.2, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.translate(0, -bounce);
+
+    // Orecchiette tonde nere + interno rosa
+    ctx.fillStyle = '#171717';
+    ctx.beginPath();
+    ctx.arc(-5.6, -7.2, 3.1, 0, Math.PI * 2);
+    ctx.arc(5.6, -7.2, 3.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#f9a8d4';
+    ctx.beginPath();
+    ctx.arc(-5.6, -7.0, 1.6, 0, Math.PI * 2);
+    ctx.arc(5.6, -7.0, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Corpo paffuto nero lucido
+    ctx.fillStyle = '#171717';
+    ctx.beginPath();
+    ctx.ellipse(0, 0.5, 9.2, 8.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.25)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    // Petto / pancino bianco morbidissimo
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.ellipse(0, 3.2, 5.2, 4.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Micro-sciarpa nei colori sociali del club!
+    ctx.fillStyle = clubInfo.primary;
+    ctx.beginPath();
+    ctx.roundRect(-7.2, -0.4, 14.4, 2.7, 1.2);
+    ctx.fill();
+    ctx.fillStyle = clubInfo.secondary;
+    ctx.fillRect(-2.4, -0.4, 4.8, 2.7);
+    // Lembo svolazzante
+    const flap = Math.sin(t * 7) * 1.1;
+    ctx.fillStyle = clubInfo.primary;
+    ctx.fillRect(4.5, 1.4, 2.4, 4.6 + flap * 0.3);
+
+    // Guanciotte paffute rosa
+    ctx.fillStyle = 'rgba(244, 114, 182, 0.55)';
+    ctx.beginPath();
+    ctx.arc(-4.6, -2.1, 1.6, 0, Math.PI * 2);
+    ctx.arc(4.6, -2.1, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Occhietti lucidi con punto luce bianco
+    ctx.fillStyle = '#020617';
+    ctx.beginPath();
+    ctx.arc(-3.0, -4.0, 1.5, 0, Math.PI * 2);
+    ctx.arc(3.0, -4.0, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-3.5, -4.5, 0.65, 0, Math.PI * 2);
+    ctx.arc(2.5, -4.5, 0.65, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Nasino rosa
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath();
+    ctx.ellipse(0, -2.3, 1.3, 0.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Zampette rosa che salutano!
+    const pawLift = celebrating ? -2.2 : Math.sin(t * 5) * 0.5;
+    ctx.fillStyle = '#fbcfe8';
+    ctx.beginPath();
+    ctx.ellipse(-4.4, 6.2 + pawLift * 0.4, 2.0, 1.3, 0, 0, Math.PI * 2);
+    ctx.ellipse(4.4, 6.2 - pawLift * 0.4, 2.0, 1.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cuoricini fluttuanti quando pronta o festeggia
+    if (this.polpetta.heartTimer > 0) {
+      const hProg = 1 - (this.polpetta.heartTimer % 0.8) / 0.8;
+      ctx.globalAlpha = Math.max(0.2, 1 - hProg * 0.7);
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f472b6';
+      ctx.fillText('❤', Math.sin(t * 7) * 5, -13 - hProg * 12);
+      ctx.fillStyle = '#fde047';
+      ctx.fillText('★', -Math.sin(t * 6) * 6, -15 - ((hProg + 0.4) % 1) * 11);
+      ctx.globalAlpha = 1;
+    } else if (isReady && !isMatchActive) {
+      const bobH = Math.sin(t * 4.5) * 2.2;
+      ctx.font = 'bold 8.5px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f9a8d4';
+      ctx.fillText('❤', 0, -13.5 + bobH);
+    }
+
+    ctx.restore();
+  }
+
+  render(ctx, w, h, g, t, { flashEvent, matchActions = [], clubInfo, isMatchActive = false, oppColors = ['#3b82f6', '#facc15'], polpettaReady = false }) {
+    // 1. Giocatori (nostri 5 Titolari + squadra avversaria + portiere rivale) ordinati per profondità ny
     const drawList = [];
 
     for (const pl of this.players) {
       const isGK = pl.data.role === 'POR';
+      const secretLabelColors = {
+        porcotrio: '#fb923c',
+        loma: '#38bdf8',
+        pscon: '#fbbf24',
+        vavelocino: '#34d399',
+      };
       drawList.push({
         ny: pl.ny,
         render: () =>
@@ -921,7 +1154,7 @@ export class StadiumEntities {
               label: pl.data.shortName,
               labelColor:
                 pl.data.rarity === 'segreto'
-                  ? '#fb923c'
+                  ? secretLabelColors[pl.data.secretId] || '#fb923c'
                   : pl.data.rarity === 'leggenda'
                     ? '#fde047'
                     : '#f8fafc',
@@ -1007,8 +1240,9 @@ export class StadiumEntities {
       ctx.restore();
     }
 
-    // 3. Pallone realistico a pentagoni rotante
+    // 3. Pallone realistico a pentagoni rotante + Mascotte Polpetta a bordocampo!
     this._renderRealisticBall(ctx, g);
+    this._renderPolpetta(ctx, g, t, clubInfo, { isReady: polpettaReady, isMatchActive });
 
     // 4. Bersagli Azioni Chiave (TIRA! con anello di precisione / PARA!)
     for (const act of matchActions) {

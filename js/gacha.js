@@ -15,6 +15,11 @@ function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+export function extractNickname(name = '') {
+  const m = String(name).match(/"([^"]+)"/);
+  return m ? m[1] : '';
+}
+
 export function rollRarity(weights) {
   const entries = Object.entries(weights);
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
@@ -56,6 +61,8 @@ function formatSingleBonus(type, val) {
       return `+${valStr}% Critico`;
     case 'matchSec':
       return `+${valStr}s Spareggio`;
+    case 'squadPowerPct':
+      return `+${valStr}% Forza Rosa`;
     default:
       return `+${valStr}`;
   }
@@ -83,13 +90,22 @@ export function createSecretPlayerInstance(secretId) {
   return { ...tpl, stars: 1 };
 }
 
-export function generateProceduralPlayer(rarityId) {
+// Generazione procedurale con controllo rigido anti-duplicato soprannomi nella rosa attuale
+export function generateProceduralPlayer(rarityId, existingRoster = []) {
   const rarity = RARITIES[rarityId] || RARITIES.comune;
   const role = pickRandom(ROLES);
   const bonusDef = pickRandom(BONUS_TYPES);
 
+  const usedNicks = new Set();
+  for (const p of existingRoster) {
+    const nick = p.nickname || extractNickname(p.name);
+    if (nick) usedNicks.add(nick);
+  }
+  const availableNicks = NICKNAMES.filter((n) => !usedNicks.has(n));
+  const nickname =
+    availableNicks.length > 0 ? pickRandom(availableNicks) : pickRandom(NICKNAMES);
+
   const firstName = pickRandom(FIRST_NAMES);
-  const nickname = pickRandom(NICKNAMES);
   const lastName = pickRandom(LAST_NAMES);
   const fullName = `${firstName} "${nickname}" ${lastName}`;
 
@@ -105,6 +121,7 @@ export function generateProceduralPlayer(rarityId) {
   return {
     id: `pl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     name: fullName,
+    nickname,
     shortName: lastName,
     role: role.code,
     jerseyColor: role.jerseyColor,
@@ -122,26 +139,50 @@ function pickSecretCandidate(state) {
     state.roster.filter((p) => p.secretId).map((p) => p.secretId)
   );
   const unowned = SECRET_PLAYERS.filter((s) => !ownedIds.has(s.secretId));
-  // Se manca 1 segreto su 2, leggera priorità (65%) a pescare quello mancante
-  if (unowned.length === 1 && Math.random() < 0.65) {
-    return unowned[0];
+  if (unowned.length > 0 && unowned.length < SECRET_PLAYERS.length && Math.random() < 0.72) {
+    return pickRandom(unowned);
   }
   return pickRandom(SECRET_PLAYERS);
 }
 
+// Calcola valore di vendita di un giocatore in panchina (+1 🪙 per Epici, Leggende e Segreti!)
+export function getBenchSellValue(player, state, stats) {
+  const rar = RARITIES[player.rarity] || RARITIES.comune;
+  const stars = player.stars || 1;
+  const mults = { comune: 6, raro: 16, epico: 38, leggenda: 80, segreto: 140 };
+  const baseFloor = { comune: 60, raro: 350, epico: 2800, leggenda: 25000, segreto: 65000 };
+  const baseIncome = Math.max(stats?.baseIncomeNoTempBoosts || 0, state?.runPeakBaseIncome || 0);
+  const cash = Math.floor(
+    Math.max(baseFloor[rar.id] || 60, baseIncome * (mults[rar.id] || 6)) * (0.7 + stars * 0.3)
+  );
+  const tokens = rar.rank >= 3 ? 1 : 0; // +1 🪙 per Epici, Leggende e Segreti
+  return { cash, tokens };
+}
+
+// Regola anti-exploit fusione panchina -> titolare: stesso ruolo, < 5★, rarità >= titolare (o stesso segreto)
+export function canFuseBenchIntoStarter(benchPlayer, starterPlayer) {
+  if (!benchPlayer || !starterPlayer) return false;
+  if (benchPlayer.id === starterPlayer.id) return false;
+  if (benchPlayer.role !== starterPlayer.role) return false;
+  if ((starterPlayer.stars || 1) >= MAX_PLAYER_STARS) return false;
+  if (benchPlayer.secretId && benchPlayer.secretId === starterPlayer.secretId) return true;
+  const bRank = RARITIES[benchPlayer.rarity]?.rank || 1;
+  const sRank = RARITIES[starterPlayer.rarity]?.rank || 1;
+  return bRank >= sRank;
+}
+
 /**
- * Apre una busta (a pagamento o gratis) e gestisce:
- * - tiro segreto Easter Egg (0.2% / 0.8% / 2.2%) prima dei pesi normali
- * - costo scalare (base * 1.12^n) solo per gli acquisti pagati
- * - fusione automatica duplicati fino a 5★ + rimborso cassa oltre 5★
- * - registrazione permanente in state.discoveredSecrets
+ * Apre una busta Scouting:
+ * - costo doppia formula gestito da getPackCostFn(state, pack, stats)
+ * - drop Segreti 0.05% / 0.15% / 0.50% con scaling ridotto (+6%/liv)
+ * - i nuovi giocatori vanno in rosa (e vengono auto-schierati solo se lo slot ruolo è vuoto!)
  */
-export function openPack(state, packId, { getPackCostFn, stats }) {
+export function openPack(state, packId, { getPackCostFn, stats, autoFillEmptySlotFn }) {
   const pack = PACKS.find((p) => p.id === packId);
   if (!pack) return { ok: false, reason: 'Busta non trovata' };
 
   const freeCount = (state.freePacks && state.freePacks[pack.id]) || 0;
-  const paidCost = getPackCostFn(state, pack);
+  const paidCost = getPackCostFn(state, pack, stats);
   const isFree = freeCount > 0;
 
   if (!isFree && state.money < paidCost) {
@@ -157,10 +198,10 @@ export function openPack(state, packId, { getPackCostFn, stats }) {
 
   let pulled = null;
   let existing = null;
-  const { scoutLuckMult } = getResearchEffects(state);
+  const { scoutLuckMult, secretLuckMult } = getResearchEffects(state);
 
-  // 1. Tiro Easter Egg Segreto (potenziato dalla ricerca Osservatore Esperto)
-  const effectiveSecretChance = (pack.secretChance || 0) * scoutLuckMult;
+  // 1. Tiro Easter Egg Segreto (0.05% / 0.15% / 0.50% * secretLuckMult)
+  const effectiveSecretChance = (pack.secretChance || 0) * secretLuckMult;
   if (effectiveSecretChance > 0 && Math.random() < effectiveSecretChance) {
     const secretTpl = pickSecretCandidate(state);
     pulled = createSecretPlayerInstance(secretTpl.secretId);
@@ -170,7 +211,7 @@ export function openPack(state, packId, { getPackCostFn, stats }) {
       state.discoveredSecrets.push(secretTpl.secretId);
     }
   } else {
-    // 2. Tiro procedurale normale (Epico & Leggenda potenziati da Osservatore Esperto)
+    // 2. Tiro procedurale normale (anti-duplicato soprannome!)
     const boostedWeights = {
       comune: pack.weights.comune,
       raro: pack.weights.raro,
@@ -178,19 +219,10 @@ export function openPack(state, packId, { getPackCostFn, stats }) {
       leggenda: pack.weights.leggenda * scoutLuckMult,
     };
     const rarityId = rollRarity(boostedWeights);
-    const sameRarityOwned = state.roster.filter(
-      (p) => p.rarity === rarityId && !p.secretId
+    pulled = generateProceduralPlayer(rarityId, state.roster);
+    existing = state.roster.find(
+      (p) => p.name === pulled.name && p.role === pulled.role
     );
-
-    if (sameRarityOwned.length > 0 && Math.random() < 0.28) {
-      existing = pickRandom(sameRarityOwned);
-      pulled = { ...existing };
-    } else {
-      pulled = generateProceduralPlayer(rarityId);
-      existing = state.roster.find(
-        (p) => p.name === pulled.name && p.role === pulled.role
-      );
-    }
   }
 
   let outcome = 'new'; // 'new' | 'fused' | 'maxed_refund'
@@ -207,17 +239,21 @@ export function openPack(state, packId, { getPackCostFn, stats }) {
       resultPlayer = existing;
       const baseRefund = Math.max(
         Math.floor(paidCost * 0.65),
-        Math.floor((stats?.incomePerSec || 0) * 12),
+        Math.floor((stats?.baseIncomeNoTempBoosts || 0) * 12),
         250
       );
       refundAmount = baseRefund;
       state.money += refundAmount;
       state.leagueEarned += refundAmount;
+      state.runEarned = (state.runEarned || 0) + refundAmount;
       state.totalEarned += refundAmount;
     }
   } else {
     state.roster.push(pulled);
     resultPlayer = pulled;
+    if (autoFillEmptySlotFn) {
+      autoFillEmptySlotFn(state, pulled);
+    }
   }
 
   sortRosterInPlace(state.roster);
@@ -243,11 +279,4 @@ export function sortRosterInPlace(roster) {
     const rb = RARITIES[b.rarity]?.rank || 0;
     return rb - ra;
   });
-}
-
-export function getTopFivePlayers(roster) {
-  if (!roster || roster.length === 0) return [];
-  return [...roster]
-    .sort((a, b) => getPlayerEffectivePower(b) - getPlayerEffectivePower(a))
-    .slice(0, 5);
 }

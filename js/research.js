@@ -25,8 +25,8 @@ export const PERMANENT_RESEARCHES = [
     icon: '🔭',
     maxLevel: 5,
     costs: [5, 10, 16, 24, 35],
-    desc: 'Aumenta del +12% relativo la probabilità di Epico, Leggenda e Segreto.',
-    effectLabel: (lvl) => `Drop rari: +${lvl * 12}%`,
+    desc: 'Aumenta +12%/liv Epico/Leggenda e +6%/liv i rarissimi Segreti.',
+    effectLabel: (lvl) => `E/L +${lvl * 12}% • Segreti +${lvl * 6}%`,
   },
   {
     id: 'prestige_power',
@@ -81,6 +81,7 @@ export function getResearchEffects(state) {
     offlineCapSec: (2 + offlineLvl * 2) * 3600,
     upgradeCostMult: Math.max(0.75, 1 - discountLvl * 0.05),
     scoutLuckMult: 1 + scoutLvl * 0.12,
+    secretLuckMult: 1 + scoutLvl * 0.06,
     shareBonusPct: 25 + prestigeLvl * 5,
     critMultiplier: 3 + critLvl * 0.5,
     eventCashMult: 1 + eventLvl * 0.2,

@@ -461,14 +461,15 @@ class ProceduralAudio {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // Esplosione d'impatto
+    // Esplosione d'impatto personalizzata per aura (fire / electric / granite / emerald)
     const src = ctx.createBufferSource();
     src.buffer = this._getNoiseBuffer(ctx);
     const f = ctx.createBiquadFilter();
-    f.type = aura === 'electric' ? 'highpass' : 'bandpass';
-    f.frequency.setValueAtTime(aura === 'electric' ? 1400 : 480, now);
+    f.type = aura === 'electric' || aura === 'emerald' ? 'highpass' : aura === 'granite' ? 'lowpass' : 'bandpass';
+    const freqMap = { fire: 480, electric: 1400, granite: 280, emerald: 1050 };
+    f.frequency.setValueAtTime(freqMap[aura] || 520, now);
     const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.24, now);
+    ng.gain.setValueAtTime(aura === 'granite' ? 0.28 : 0.24, now);
     ng.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
     src.connect(f);
     f.connect(ng);
@@ -476,9 +477,43 @@ class ProceduralAudio {
     src.start(now);
     src.stop(now + 0.7);
 
+    // Extra colpo basso di granito per Tumas Pscon / sweep turbo per Vavelocino
+    if (aura === 'granite') {
+      const thump = ctx.createOscillator();
+      const tg = ctx.createGain();
+      thump.type = 'triangle';
+      thump.frequency.setValueAtTime(125, now);
+      thump.frequency.exponentialRampToValueAtTime(36, now + 0.34);
+      tg.gain.setValueAtTime(0.28, now);
+      tg.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+      thump.connect(tg);
+      tg.connect(ctx.destination);
+      thump.start(now);
+      thump.stop(now + 0.38);
+    } else if (aura === 'emerald') {
+      const whoosh = ctx.createOscillator();
+      const wg = ctx.createGain();
+      whoosh.type = 'sine';
+      whoosh.frequency.setValueAtTime(420, now);
+      whoosh.frequency.exponentialRampToValueAtTime(1960, now + 0.22);
+      wg.gain.setValueAtTime(0.14, now);
+      wg.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+      whoosh.connect(wg);
+      wg.connect(ctx.destination);
+      whoosh.start(now);
+      whoosh.stop(now + 0.28);
+    }
+
     // Fanfara trionfale segreta
-    [523.25, 659.25, 783.99, 1046.5, 1567.98].forEach((freq, i) => {
-      const t = now + i * 0.065;
+    const notes =
+      aura === 'granite'
+        ? [392.0, 493.88, 587.33, 783.99, 1174.66]
+        : aura === 'emerald'
+          ? [587.33, 739.99, 880.0, 1174.66, 1760.0]
+          : [523.25, 659.25, 783.99, 1046.5, 1567.98];
+    const step = aura === 'emerald' ? 0.052 : 0.065;
+    notes.forEach((freq, i) => {
+      const t = now + i * step;
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
       osc.type = 'triangle';
@@ -489,6 +524,33 @@ class ProceduralAudio {
       g.connect(ctx.destination);
       osc.start(t);
       osc.stop(t + 0.68);
+    });
+  }
+
+  // Squittio dolcissimo della mascotte criceto Polpetta!
+  playHamsterSqueak() {
+    const ctx = this._readySfx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    [
+      { off: 0, start: 1550, peak: 2380, end: 1820, dur: 0.085 },
+      { off: 0.095, start: 1750, peak: 2620, end: 2050, dur: 0.075 },
+    ].forEach((c) => {
+      const t = now + c.off;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(c.start, t);
+      osc.frequency.exponentialRampToValueAtTime(c.peak, t + c.dur * 0.45);
+      osc.frequency.exponentialRampToValueAtTime(c.end, t + c.dur);
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.11, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + c.dur + 0.01);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + c.dur + 0.02);
     });
   }
 

@@ -1,4 +1,8 @@
-import { AUTO_SAVE_INTERVAL_MS } from './config.js';
+import {
+  AUTO_SAVE_INTERVAL_MS,
+  FORMATION_SLOTS_DEF,
+  SEASON_BONUS_TOKENS,
+} from './config.js';
 import { formatMoney, escapeHTML } from './format.js';
 import {
   addMoney,
@@ -12,6 +16,18 @@ import {
   getPendingPrestigeShares,
   setSelectedTactic,
   setClubCustomization,
+  getStarters,
+  getBenchPlayers,
+  autoAssignLineup,
+  autoFillEmptySlot,
+  assignSlotPlayer,
+  sellBenchPlayer,
+  fuseBenchIntoStarter,
+  petPolpetta,
+  isPolpettaReady,
+  canStartNewSeason,
+  startNewSeason,
+  syncPeakIncomeTracking,
 } from './state.js';
 import { buyResearch } from './research.js';
 import {
@@ -22,7 +38,8 @@ import {
   clearSavedGame,
 } from './storage.js';
 import { audio } from './audio.js';
-import { openPack, getTopFivePlayers } from './gacha.js';
+import { openPack } from './gacha.js';
+import { evaluateMatchChallenges, buildWhatsAppCard } from './challenges.js';
 import { SpareggioController } from './match.js';
 import { FlashEventManager } from './events.js';
 import {
@@ -73,7 +90,7 @@ function getClubInfo() {
 
 function syncSquadOnPitch() {
   if (stadium) {
-    stadium.syncTopPlayers(getTopFivePlayers(state.roster));
+    stadium.syncTopPlayers(getStarters(state));
   }
 }
 
@@ -268,9 +285,22 @@ function finalizeMatchOutcome(outcome) {
   audio.fadeMusicForMatch(false);
   audio.playWhistle('fulltime');
 
+  // Valuta le 4 Sfide del Presidente
+  const newChallenges = evaluateMatchChallenges(state, {
+    won: outcome.won,
+    myGoals: outcome.myGoals,
+    oppGoals: outcome.oppGoals,
+    leagueIndex: outcome.leagueIndex ?? state.leagueIndex,
+    starters: outcome.starters || [],
+  });
+  outcome.newChallenges = newChallenges;
+  for (const ch of newChallenges) {
+    modals.toast(`🏅 Sfida "${ch.name}" completata! +${ch.tokenReward} 🪙 & +${ch.globalPct}% globale!`, 3200);
+  }
+
   if (outcome.won) {
     audio.playGoal();
-    stadium.celebratePromotion(state.leagueIndex === 4 || outcome.finalCup);
+    stadium.celebratePromotion(state.leagueIndex >= 4 || outcome.finalCup);
   } else {
     audio.playMiss();
   }
@@ -281,13 +311,13 @@ function finalizeMatchOutcome(outcome) {
     refreshFullUI();
   };
 
-  // Prima Pagina "Gazzetta della Provincia" su promozione o Coppa Europea!
+  // Prima Pagina "Gazzetta della Provincia" su promozione o Superlega Galattica!
   if (outcome.won && (outcome.promoted || outcome.finalCup)) {
     const headline = outcome.finalCup
-      ? `${state.clubName.toUpperCase()} SUL TETTO D'EUROPA!`
+      ? `${state.clubName.toUpperCase()} CAMPIONE GALATTICO!`
       : `STORICO! ${state.clubName.toUpperCase()} VOLA IN ${outcome.newLeague.name.toUpperCase()}!`;
     const subline = outcome.finalCup
-      ? `Battuto ${outcome.opponent} (${outcome.myGoals}-${outcome.oppGoals})! Il Sindaco dichiara festa patronale fino a martedì!`
+      ? `Battuto ${outcome.opponent} (${outcome.myGoals}-${outcome.oppGoals})! Polpetta fa il giro d'onore, pronta la Stella d'Oro ★!`
       : `Travolto ${outcome.opponent} (${outcome.myGoals}-${outcome.oppGoals})! Paninaro preso d'assalto, città bloccata dai clacson!`;
 
     cutscenes.playGazzettaFrontPage(
@@ -427,6 +457,21 @@ stadium = new StadiumCanvas(canvasEl, {
         refreshFullUI();
         return;
       }
+
+      // Priorità 2b (fuori partita): Carezza alla mascotte Polpetta a bordocampo!
+      if (stadium.tryHitPolpettaPx(clickX, clickY)) {
+        const res = petPolpetta(state);
+        audio.playHamsterSqueak();
+        stadium.triggerPolpettaPet(res.boosted);
+        if (res.boosted) {
+          modals.toast('🐹 Polpetta felice! Morale squadra ×1,25 per 10s!', 2400);
+          saveGame(state);
+          hud.update(state, matchCtrl);
+        } else {
+          modals.toast(`🐹 Polpetta sta riposando (${res.cooldownLeft}s)...`, 1800);
+        }
+        return;
+      }
     }
 
     // Priorità 3: Tap normale sul campo
@@ -496,12 +541,13 @@ tabs = new TabsController({
     const wasDiscoveredBefore = new Set(state.discoveredSecrets || []);
     const res = openPack(state, packId, {
       getPackCostFn: getPackCost,
+      autoFillEmptySlotFn: autoFillEmptySlot,
       stats,
     });
     if (!res.ok) return;
     saveGame(state);
 
-    // Walkout Epico dedicato per Francesco Porcotrio & Loma!
+    // Walkout Epico dedicato per tutte e 4 le Leggende Segrete!
     if (res.player.rarity === 'segreto') {
       const isFirstTime = !wasDiscoveredBefore.has(res.player.secretId);
       cutscenes.playSecretWalkout(res, {
@@ -528,6 +574,142 @@ tabs = new TabsController({
     modals.showPackOpening(res, () => {
       refreshFullUI();
     });
+  },
+
+  onAutoLineup() {
+    audio.unlock();
+    autoAssignLineup(state);
+    audio.playBuy();
+    modals.toast('⚡ Migliori 5 titolari schierati per ruolo!');
+    saveGame(state);
+    refreshFullUI();
+  },
+
+  onOpenSlotPicker(slotKey) {
+    audio.unlock();
+    const slotDef = FORMATION_SLOTS_DEF.find((s) => s.key === slotKey);
+    if (!slotDef) return;
+    const currentId = state.lineup?.[slotKey] || null;
+    const currentStarter = currentId ? state.roster.find((p) => p.id === currentId) || null : null;
+    const benchCandidates = getBenchPlayers(state).filter((p) => p.role === slotDef.role);
+
+    modals.showSlotPickerModal({
+      slotDef,
+      currentStarter,
+      benchCandidates,
+      onPick: (playerId) => {
+        if (assignSlotPlayer(state, slotKey, playerId)) {
+          audio.playBuy();
+          modals.toast(`Titolare aggiornato nello slot ${slotDef.label}!`);
+          saveGame(state);
+          refreshFullUI();
+        }
+      },
+      onFuse: (benchId) => {
+        if (!currentStarter) return;
+        const res = fuseBenchIntoStarter(state, benchId, slotKey);
+        if (res.ok) {
+          audio.playPackOpen('epico');
+          modals.toast(`🔥 ${res.starter.name} allenato! Sale a ${res.starter.stars}★!`);
+          saveGame(state);
+          refreshFullUI();
+        }
+      },
+      onUnequip: () => {
+        if (assignSlotPlayer(state, slotKey, null)) {
+          saveGame(state);
+          refreshFullUI();
+        }
+      },
+    });
+  },
+
+  onQuickEquipBench(playerId) {
+    audio.unlock();
+    const player = state.roster.find((p) => p.id === playerId);
+    if (!player) return;
+    const matchingSlots = FORMATION_SLOTS_DEF.filter((s) => s.role === player.role);
+    if (matchingSlots.length === 0) return;
+
+    // Preferisci slot vuoto dello stesso ruolo, altrimenti sostituisci il titolare più debole di quel ruolo
+    let targetSlot = matchingSlots.find((s) => !state.lineup?.[s.key]);
+    if (!targetSlot) {
+      const starters = getStarters(state).filter((s) => s.slotDef.role === player.role);
+      starters.sort((a, b) => (a.player ? a.player.stars : 0) - (b.player ? b.player.stars : 0));
+      targetSlot = starters[0]?.slotDef || matchingSlots[0];
+    }
+
+    if (assignSlotPlayer(state, targetSlot.key, playerId)) {
+      audio.playBuy();
+      modals.toast(`⚽ ${player.shortName || player.name} schierato titolare (${targetSlot.label})!`);
+      saveGame(state);
+      refreshFullUI();
+    }
+  },
+
+  onFuseBench(benchId, slotKey) {
+    audio.unlock();
+    const res = fuseBenchIntoStarter(state, benchId, slotKey);
+    if (!res.ok) return;
+    audio.playPackOpen('epico');
+    modals.toast(`🔥 Fusione riuscita! ${res.starter.name} sale a ${res.starter.stars}★!`);
+    saveGame(state);
+    refreshFullUI();
+  },
+
+  onSellBench(benchId) {
+    audio.unlock();
+    const res = sellBenchPlayer(state, benchId, computeStats(state));
+    if (!res.ok) return;
+    audio.playBuy();
+    const tokMsg = res.tokens > 0 ? ` e +${res.tokens} 🪙` : '';
+    modals.toast(`💰 ${res.player.shortName || res.player.name} ceduto: +${formatMoney(res.cash)}${tokMsg}!`);
+    saveGame(state);
+    refreshFullUI();
+  },
+
+  onStartNewSeason() {
+    audio.unlock();
+    if (!canStartNewSeason(state)) return;
+    const nextSeason = (state.seasonNumber || 1) + 1;
+    const nextStars = (state.seasonStars || 0) + 1;
+    const nextMult = Math.pow(2, nextStars);
+    const gainedShares = getPendingPrestigeShares(state);
+
+    modals.showNewSeasonConfirm(
+      {
+        nextSeason,
+        nextStars,
+        nextMult,
+        gainedShares,
+        bonusTokens: SEASON_BONUS_TOKENS,
+      },
+      () => {
+        const res = startNewSeason(state);
+        if (!res.ok) return;
+        audio.playGoal();
+        stadium.celebratePromotion(true);
+        saveGame(state);
+        modals.toast(`🌌 Stagione ${res.seasonNumber} iniziata! ${res.seasonStars}★ (×${Math.pow(2, res.seasonStars)}) & +${res.bonusTokens} 🪙!`, 3400);
+        refreshFullUI();
+      }
+    );
+  },
+
+  async onCopyWhatsApp() {
+    audio.unlock();
+    const stats = computeStats(state);
+    const cardText = buildWhatsAppCard(state, stats);
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(cardText);
+        modals.toast('📋 Scheda Club copiata! Incollala su WhatsApp!', 2600);
+        return;
+      } catch {
+        // Fallback iOS Safari / PWA senza permesso clipboard
+      }
+    }
+    modals.showWhatsAppCardModal(cardText);
   },
 
   onSelectTactic(tacticId) {
@@ -759,6 +941,7 @@ function tick(now) {
   const tSec = now / 1000;
 
   const stats = computeStats(state);
+  syncPeakIncomeTracking(state, stats);
   if (stats.incomePerSec > 0) {
     addMoney(state, stats.incomePerSec * dt);
   }
@@ -777,6 +960,10 @@ function tick(now) {
         audio.playMiss();
         audio.setAmbienceIntensity(0.2);
         stadium.triggerMatchSavedByOpponent(ev.nx, ev.ny, state.leagueIndex);
+      } else if (ev.type === 'pscon_block') {
+        audio.playSave();
+        audio.setAmbienceIntensity(0.35);
+        stadium.triggerPsconBlock(ev.nx, ev.ny);
       } else if (ev.type === 'enemy_goal') {
         audio.playMiss();
         audio.setAmbienceIntensity(0.2);
@@ -856,6 +1043,7 @@ function tick(now) {
     upgrades: state.upgrades,
     isMatchActive: matchCtrl.active,
     oppColors: matchCtrl.oppColors,
+    polpettaReady: isPolpettaReady(state),
   });
 
   uiThrottle += dt;

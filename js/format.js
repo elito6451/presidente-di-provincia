@@ -1,6 +1,6 @@
 // Formattazione numeri, valute, tempi e codifica Base64 UTF-8
 
-const SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx'];
+const SUFFIXES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
 
 export function formatNumber(value, decimals = 2) {
   if (!Number.isFinite(value) || value === 0) return '0';

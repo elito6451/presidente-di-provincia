@@ -5,6 +5,7 @@ import {
   getChecklistStatus,
   getPendingPrestigeShares,
   canPrestige,
+  canStartNewSeason,
   getUpgradeLevel,
   isUpgradeUnlocked,
   addMoney,
@@ -64,8 +65,8 @@ export const TUTORIAL_STEPS = [
   },
   {
     step: 2,
-    title: 'Passo 3/4 — Scouting & Rosa',
-    text: 'Appena hai €250, apri la tab Scouting e spacchetta la tua prima Busta Oratorio: i tuoi 5 migliori giocatori scenderanno subito sul prato!',
+    title: 'Passo 3/4 — Scouting & Formazione',
+    text: 'Appena hai €250, apri Scouting e spacchetta la tua prima Busta Oratorio: i 5 titolari schierati per ruolo scendono subito sul prato! (E coccola Polpetta a bordocampo!)',
     targetTab: 'scouting',
   },
   {
@@ -170,15 +171,28 @@ const LEAGUE_BANTER = [
   'Con la tribunetta in cemento di Promozione il paninaro fa gli straordinari!',
   'Serie C: qui iniziano i numeri seri. Se il salto verso la Serie A è ripido, pensa al Prestige!',
   'Serie A! Riflettori accesi, telecamere ovunque e il Fondo Estero che ci corteggia.',
-  'Notte Europea: siamo nell\'olimpo del calcio! Punta al Fondo Sovrano e alle 5★!',
+  'Notte Europea: siamo tra i giganti del continente! Punta al Mondiale per Club!',
+  'Mondiale per Club! Tutto il pianeta guarda il nostro stadio dorato e Polpetta impazzisce!',
+  'Superlega Galattica: siamo nell\'olimpo cosmico del calcio! Conquista la Coppa per la Stella d\'Oro ★!',
 ];
 
 export function getGinoDynamicTip(state) {
   const stats = computeStats(state);
   const check = getChecklistStatus(state);
 
+  // 0. Nuova Stagione disponibile dopo aver vinto la Superlega Galattica!
+  if (canStartNewSeason(state)) {
+    return {
+      urgent: true,
+      title: `Stagione ${(state.seasonNumber || 1) + 1} Sbloccata!`,
+      text: 'Presidente, abbiamo vinto la Superlega Galattica! Vai in Spareggio per avviare la Nuova Stagione con +1 ★ Stella d\'Oro (×2 permanente) e +25 🪙!',
+      ctaTab: 'spareggio',
+      ctaLabel: 'Nuova Stagione ★',
+    };
+  }
+
   // 1. Spareggio pronto!
-  if (check.allReady && !(state.leagueIndex === 4 && state.europeanCupWon)) {
+  if (check.allReady && !state.seasonCompleted) {
     return {
       urgent: true,
       title: 'Spareggio Sbloccato!',

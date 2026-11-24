@@ -9,15 +9,23 @@ import {
   TACTICS,
   SECRET_PLAYERS,
   MILESTONE_LEVELS,
+  FORMATION_SLOTS_DEF,
 } from './config.js';
-import { createInitialState, computeStats } from './state.js';
+import {
+  createInitialState,
+  createEmptyLineup,
+  autoAssignLineup,
+  computeStats,
+} from './state.js';
 import { encodeBase64UTF8, decodeBase64UTF8 } from './format.js';
-import { sortRosterInPlace, getSecretTemplate } from './gacha.js';
+import { sortRosterInPlace, getSecretTemplate, extractNickname } from './gacha.js';
 import { PERMANENT_RESEARCHES, getResearchEffects } from './research.js';
+import { PRESIDENT_CHALLENGES } from './challenges.js';
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const VALID_SECRET_IDS = new Set(SECRET_PLAYERS.map((s) => s.secretId));
 const VALID_BUY_MODES = new Set(['1x', '10x', '100x', 'MAX']);
+const VALID_CHALLENGES = new Set(PRESIDENT_CHALLENGES.map((c) => c.id));
 
 function sanitizeNumber(val, fallback = 0, min = 0) {
   const n = Number(val);
@@ -26,7 +34,7 @@ function sanitizeNumber(val, fallback = 0, min = 0) {
 }
 
 /**
- * Migrazione 100% retrocompatibile v1 / v2 / v2.5 -> v3.0 (SAVE_VERSION 4).
+ * Migrazione 100% retrocompatibile v1 / v2 / v2.5 / v3.0.1 -> v3.5 (SAVE_VERSION 5).
  */
 export function sanitizeState(raw) {
   const base = createInitialState();
@@ -70,7 +78,6 @@ export function sanitizeState(raw) {
 
   const prestigeCount = Math.floor(sanitizeNumber(raw.prestigeCount, 0, 0));
 
-  // Migrazione Prestige & Gettoni d'Oro da salvataggi v1/v2/v2.5
   let prestigeShares = Math.floor(sanitizeNumber(raw.prestigeShares, 0, 0));
   if (isPreV3 && prestigeShares === 0 && prestigeCount > 0) {
     prestigeShares = prestigeCount * 8;
@@ -111,13 +118,23 @@ export function sanitizeState(raw) {
     money: sanitizeNumber(raw.money, 0, 0),
     leagueEarned,
     runEarned,
+    runPeakBaseIncome: sanitizeNumber(raw.runPeakBaseIncome, 0, 0),
     totalEarned,
     leagueIndex,
+    seasonNumber: Math.max(1, Math.floor(sanitizeNumber(raw.seasonNumber, 1, 1))),
+    seasonStars: Math.floor(sanitizeNumber(raw.seasonStars, 0, 0)),
+    seasonCompleted: Boolean(raw.seasonCompleted),
     europeanCupWon: Boolean(raw.europeanCupWon),
     upgrades: {},
     roster: [],
+    lineup: createEmptyLineup(),
     discoveredSecrets: [],
     claimedCareerMilestones: {},
+    completedChallenges: Array.isArray(raw.completedChallenges)
+      ? raw.completedChallenges.filter((id) => VALID_CHALLENGES.has(id))
+      : [],
+    cleanSheetStreak: Math.floor(sanitizeNumber(raw.cleanSheetStreak, 0, 0)),
+    boughtIncomeUpgradeThisRun: Boolean(raw.boughtIncomeUpgradeThisRun),
     packPurchases: { oratorio: 0, osservatore: 0, vip: 0 },
     freePacks: { oratorio: 0, osservatore: 0, vip: 0 },
     trophies,
@@ -129,12 +146,15 @@ export function sanitizeState(raw) {
     sfxEnabled,
     boostUntil: sanitizeNumber(raw.boostUntil, 0, 0),
     invasionBoostUntil: sanitizeNumber(raw.invasionBoostUntil, 0, 0),
+    polpettaBoostUntil: sanitizeNumber(raw.polpettaBoostUntil, 0, 0),
+    polpettaCooldownUntil: sanitizeNumber(raw.polpettaCooldownUntil, 0, 0),
     tutorialStep,
     stats: {
       totalTaps,
       packsOpened: Math.floor(sanitizeNumber(raw.stats?.packsOpened, 0, 0)),
       matchesWon: Math.floor(sanitizeNumber(raw.stats?.matchesWon, 0, 0)),
       flashEventsHit: Math.floor(sanitizeNumber(raw.stats?.flashEventsHit, 0, 0)),
+      maxIncomePerSec: sanitizeNumber(raw.stats?.maxIncomePerSec, 0, 0),
     },
     lastSavedAt: sanitizeNumber(raw.lastSavedAt, Date.now(), 0),
   };
@@ -146,7 +166,6 @@ export function sanitizeState(raw) {
     }
   }
 
-  // Sanitizza claimedCareerMilestones (e segna già riscattate eventuali milestone già possedute in salvataggi vecchi)
   if (raw.claimedCareerMilestones && typeof raw.claimedCareerMilestones === 'object') {
     for (const [k, v] of Object.entries(raw.claimedCareerMilestones)) {
       if (v) state.claimedCareerMilestones[k] = true;
@@ -197,16 +216,20 @@ export function sanitizeState(raw) {
         }
       }
 
+      const cleanName = p.name.slice(0, 80);
       state.roster.push({
         id: typeof p.id === 'string' ? p.id : `pl_${Math.random().toString(36).slice(2)}`,
-        name: p.name.slice(0, 80),
-        shortName: typeof p.shortName === 'string' ? p.shortName.slice(0, 24) : p.name.split(' ').pop(),
+        name: cleanName,
+        nickname: typeof p.nickname === 'string' ? p.nickname : extractNickname(cleanName),
+        shortName: typeof p.shortName === 'string' ? p.shortName.slice(0, 24) : cleanName.split(' ').pop(),
         role: ['POR', 'DIF', 'CEN', 'ATT'].includes(p.role) ? p.role : 'ATT',
         jerseyColor: typeof p.jerseyColor === 'string' ? p.jerseyColor : '#ef4444',
         jerseyNumber: Math.min(99, Math.max(1, Math.floor(sanitizeNumber(p.jerseyNumber, 10, 1)))),
         rarity: ['comune', 'raro', 'epico', 'leggenda', 'segreto'].includes(p.rarity) ? p.rarity : 'comune',
         stars: Math.min(MAX_PLAYER_STARS, Math.max(1, Math.floor(sanitizeNumber(p.stars, 1, 1)))),
-        bonusType: ['tapPct', 'incomePct', 'critPct', 'matchSec'].includes(p.bonusType) ? p.bonusType : 'incomePct',
+        bonusType: ['tapPct', 'incomePct', 'critPct', 'matchSec', 'squadPowerPct'].includes(p.bonusType)
+          ? p.bonusType
+          : 'incomePct',
         bonusValue: sanitizeNumber(p.bonusValue, 5, 0.1),
         power: sanitizeNumber(p.power, 10, 1),
       });
@@ -214,7 +237,33 @@ export function sanitizeState(raw) {
     sortRosterInPlace(state.roster);
   }
 
+  // Migrazione Formazione a 5 Ruoli: conserva lineup valida o auto-schiera i migliori da salvataggi v3.0.1!
+  const rosterById = new Map(state.roster.map((p) => [p.id, p]));
+  let hasAnyAssigned = false;
+  if (raw.lineup && typeof raw.lineup === 'object') {
+    const used = new Set();
+    for (const slot of FORMATION_SLOTS_DEF) {
+      const pid = raw.lineup[slot.key];
+      const pl = pid ? rosterById.get(pid) : null;
+      if (pl && pl.role === slot.role && !used.has(pid)) {
+        state.lineup[slot.key] = pid;
+        used.add(pid);
+        hasAnyAssigned = true;
+      }
+    }
+  }
+  if (!hasAnyAssigned && state.roster.length > 0) {
+    autoAssignLineup(state);
+  }
+
   state.discoveredSecrets = Array.from(discoveredSet);
+
+  // Sincronizza runPeakBaseIncome sui vecchi salvataggi
+  const curStats = computeStats(state);
+  if (curStats.baseIncomeNoTempBoosts > state.runPeakBaseIncome) {
+    state.runPeakBaseIncome = curStats.baseIncomeNoTempBoosts;
+  }
+
   return state;
 }
 
@@ -250,7 +299,10 @@ export function calculateOfflineEarnings(state, now = Date.now()) {
   const rawElapsedSec = (now - state.lastSavedAt) / 1000;
   if (rawElapsedSec < OFFLINE_MIN_SECONDS) return null;
 
-  const stats = computeStats({ ...state, boostUntil: 0, invasionBoostUntil: 0 }, now);
+  const stats = computeStats(
+    { ...state, boostUntil: 0, invasionBoostUntil: 0, polpettaBoostUntil: 0 },
+    now
+  );
   if (stats.incomePerSec <= 0) return null;
 
   const { offlineCapSec, offlineCapHours } = getResearchEffects(state);
