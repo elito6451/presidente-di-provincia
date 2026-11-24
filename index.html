@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#070c16" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Presidente di Provincia v3.0 Tycoon Edition — Idle/clicker calcistico mobile-first 2.5D con stadio vivo, ricerche permanenti, scouting segreto e spareggi." />
+  <title>Presidente di Provincia</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <main class="app-shell" id="app-shell">
+    <!-- FASCIA SCURA PULITA PER STATUS BAR iOS (ZERO ALONI / BLUR) -->
+    <div class="ios-safe-top" aria-hidden="true"></div>
+
+    <!-- METÀ SUPERIORE (~44%): STADIO VIVO 2.5D SU CANVAS -->
+    <section class="stadium-stage" aria-label="Stadio Vivo">
+      <canvas id="stadium-canvas"></canvas>
+
+      <div class="stage-top-badges" id="stage-top-badges">
+        <span class="stage-title-chip" id="stage-club-chip">
+          <span class="club-swatch" id="chip-swatch"></span>
+          <span id="stage-club-name">Real Provincia</span>
+        </span>
+        <div class="stage-right-chips">
+          <span class="stage-prestige-chip hidden" id="stage-prestige-chip">Azioni 0</span>
+          <button type="button" class="gino-top-btn" id="btn-gino-top" aria-label="Consigli di Gino il DS" title="Gino il DS">
+            <span id="gino-top-avatar"></span>
+            <span class="gino-dot hidden" id="gino-dot"></span>
+          </button>
+          <button type="button" class="micro-audio-btn" id="btn-quick-music" title="Musica ON/OFF" aria-label="Musica">♫</button>
+          <button type="button" class="micro-audio-btn" id="btn-quick-sfx" title="Effetti ON/OFF" aria-label="Effetti">🔊</button>
+        </div>
+      </div>
+
+      <!-- FUMETTO COMPATTO DI GINO IL DS LEGATO ALL'AVATAR IN ALTO -->
+      <div class="gino-bubble hidden" id="gino-bubble" aria-live="polite"></div>
+
+      <!-- TABELLONE DIRETTA TV IN ALTO DURANTE LA PARTITA 0'-90' -->
+      <div class="tv-scoreboard hidden" id="tv-scoreboard" aria-live="polite">
+        <span class="tv-min" id="tv-min">0'</span>
+        <div class="tv-teams">
+          <span class="tv-swatch" id="tv-home-swatch"></span>
+          <span class="tv-name" id="tv-home-name">Real Provincia</span>
+          <span class="tv-score" id="tv-score">0 - 0</span>
+          <span class="tv-name opp" id="tv-away-name">Real Borgata</span>
+          <span class="tv-swatch" id="tv-away-swatch"></span>
+        </div>
+      </div>
+
+      <div class="tap-hint" id="tap-hint">Tocca il campo per incassare!</div>
+
+      <!-- BARRA COMPATTA POSSESSO / PRESSIONE IN BASSO DURANTE IL MATCH -->
+      <div class="match-possession-hud hidden" id="match-possession-hud">
+        <div class="poss-head">
+          <span id="poss-tactic">Contropiede</span>
+          <span id="poss-pct">Possesso 0%</span>
+        </div>
+        <div class="poss-track">
+          <div class="poss-fill" id="poss-fill"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BARRA CENTRALE HUD -->
+    <section class="mid-hud" aria-label="Stato economico">
+      <div class="hud-money-block">
+        <div class="hud-money-row">
+          <div class="hud-money" id="hud-money">€0</div>
+          <span class="token-pill" id="hud-tokens" title="Gettoni d'Oro permanenti">🪙 0</span>
+        </div>
+        <div class="hud-rates">
+          <span id="hud-income">€0/s</span>
+          <span class="hud-dot">•</span>
+          <span id="hud-tap">€2/tap</span>
+          <span class="inv-boost-pill hidden" id="hud-inv-boost">×3 25s</span>
+        </div>
+      </div>
+
+      <div class="hud-right-block">
+        <span class="league-pill" id="hud-league">Terza Categoria</span>
+        <button type="button" class="boost-btn" id="btn-boost">
+          <svg class="svg-ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span id="btn-boost-label">Boost x2 (Demo 5s)</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- METÀ INFERIORE: TAB SCORREVOLI + DOCK RIGORI + GINO IL DS -->
+    <section class="tabs-panel" aria-label="Gestione Club">
+      <nav class="tab-bar" role="tablist">
+        <button type="button" class="tab-btn active" data-tab="club" role="tab" aria-selected="true">
+          <svg class="svg-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 10c0-3 4.5-5 10-5s10 2 10 5v7c0 2.5-4.5 4-10 4S2 19.5 2 17v-7Z"/><path d="M2 10c0 2.2 4.5 4 10 4s10-1.8 10-4"/><path d="M8 14v6"/><path d="M16 14v6"/></svg>
+          <span>Club</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="scouting" role="tab" aria-selected="false">
+          <svg class="svg-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="3" width="12" height="17" rx="2"/><path d="M3 7v11a2 2 0 0 0 2 2h9"/><path d="m12 8 1.2 2.4 2.6.4-1.9 1.8.5 2.6L12 14l-2.4 1.2.5-2.6-1.9-1.8 2.6-.4Z"/></svg>
+          <span>Scouting</span>
+          <span class="tab-badge hidden" id="badge-scouting">1</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="spareggio" role="tab" aria-selected="false">
+          <svg class="svg-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M6 4h12v6a6 6 0 0 1-12 0V4Z"/><path d="M12 16v4"/><path d="M8 20h8"/></svg>
+          <span>Spareggio</span>
+          <span class="tab-badge hidden" id="badge-spareggio">!</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="societa" role="tab" aria-selected="false">
+          <svg class="svg-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/></svg>
+          <span>Società</span>
+          <span class="tab-badge hidden" id="badge-societa">★</span>
+        </button>
+      </nav>
+
+      <div class="tab-content" id="tab-content"></div>
+
+      <!-- PANNELLO CALCI DI RIGORE ANCORATO NELLA METÀ INFERIORE -->
+      <div class="penalty-dock hidden" id="penalty-dock" aria-live="polite"></div>
+    </section>
+
+    <!-- FASCIA SCURA INFERIORE PER HOME INDICATOR iOS -->
+    <div class="ios-safe-bottom" aria-hidden="true"></div>
+
+    <!-- FRECCIA GUIDA ANIMATA TUTORIAL (POINTER-EVENTS: NONE) -->
+    <div class="tutorial-pointer hidden" id="tutorial-pointer" aria-hidden="true"></div>
+
+    <!-- TOAST, MODALI E CUTSCENE LAMPO -->
+    <div class="toast-root" id="toast-root" aria-live="polite"></div>
+    <div class="modal-root hidden" id="modal-root" role="dialog" aria-modal="true"></div>
+    <div class="cutscene-root hidden" id="cutscene-root" aria-live="polite"></div>
+  </main>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="pitch" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="65%" stop-color="#15803d"/>
+      <stop offset="100%" stop-color="#0b3b1e"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#pitch)"/>
+  <g opacity="0.16" fill="#ffffff">
+    <rect x="0" y="64" width="512" height="52"/>
+    <rect x="0" y="168" width="512" height="52"/>
+    <rect x="0" y="272" width="512" height="52"/>
+    <rect x="0" y="376" width="512" height="52"/>
+  </g>
+  <!-- Scudetto -->
+  <path d="M256 76 L396 122 V254 C396 346 336 410 256 446 C176 410 116 346 116 254 V122 Z"
+        fill="url(#shield)" stroke="url(#gold)" stroke-width="18" stroke-linejoin="round"/>
+  <!-- Banda tricolore -->
+  <clipPath id="shieldClip">
+    <path d="M256 92 L380 132 V252 C380 334 326 393 256 426 C186 393 132 334 132 252 V132 Z"/>
+  </clipPath>
+  <g clip-path="url(#shieldClip)">
+    <rect x="130" y="128" width="84" height="34" fill="#16a34a"/>
+    <rect x="214" y="128" width="84" height="34" fill="#f8fafc"/>
+    <rect x="298" y="128" width="84" height="34" fill="#dc2626"/>
+  </g>
+  <!-- Corona Presidente -->
+  <path d="M188 118 L204 68 L236 96 L256 54 L276 96 L308 68 L324 118 Z"
+        fill="url(#gold)" stroke="#78350f" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Pallone stilizzato -->
+  <circle cx="256" cy="284" r="76" fill="#f8fafc" stroke="#0f172a" stroke-width="8"/>
+  <polygon points="256,238 286,260 274,296 238,296 226,260" fill="#0f172a"/>
+  <path d="M256 238 V208 M286 260 L322 250 M274 296 L300 332 M238 296 L212 332 M226 260 L190 250"
+        stroke="#0f172a" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="256" cy="284" r="76" fill="none" stroke="url(#gold)" stroke-width="5" opacity="0.7"/>
+</svg>

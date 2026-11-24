@@ -1,0 +1,1009 @@
+// Rendering 2.5D v3.0: cielo con nuvole/tramonto/stelle, tettoia metallica anti-alone iOS,
+// costruzioni fisiche dagli upgrade, bandierine d'angolo, texture erba, LED scorrevoli e meteo
+
+import { renderStadiumBuildings } from './buildings.js';
+
+function drawSlowClouds(ctx, w, topY, t, color = 'rgba(226, 232, 240, 0.14)') {
+  ctx.save();
+  ctx.fillStyle = color;
+  for (let i = 0; i < 4; i++) {
+    const cx = ((i * 115 + t * (5 + i * 1.4)) % (w + 90)) - 45;
+    const cy = 22 + (i % 2) * (topY * 0.2);
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 24 + i * 3, 7, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + 12, cy - 3, 15, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+export function getPitchGeometry(w, h) {
+  const topY = h * 0.305;
+  const bottomY = h * 0.92;
+  const topLeft = w * 0.125;
+  const topRight = w * 0.875;
+  const bottomLeft = w * 0.045;
+  const bottomRight = w * 0.955;
+  return {
+    w,
+    h,
+    topY,
+    bottomY,
+    height: bottomY - topY,
+    topLeft,
+    topRight,
+    topW: topRight - topLeft,
+    bottomLeft,
+    bottomRight,
+    bottomW: bottomRight - bottomLeft,
+    cx: w * 0.5,
+    cy: (topY + bottomY) * 0.5,
+  };
+}
+
+export function projectPitch(nx, ny, g) {
+  const clampedY = Math.max(-0.2, Math.min(1.2, ny));
+  const y = g.topY + clampedY * g.height;
+  const left = g.topLeft + (g.bottomLeft - g.topLeft) * clampedY;
+  const right = g.topRight + (g.bottomRight - g.topRight) * clampedY;
+  const x = left + nx * (right - left);
+  const scale = 0.82 + Math.max(0, Math.min(1, clampedY)) * 0.28;
+  return { x, y, scale, left, right, rowW: right - left };
+}
+
+export function unprojectPitch(px, py, g) {
+  const ny = (py - g.topY) / Math.max(1, g.height);
+  const cy = Math.max(0, Math.min(1, ny));
+  const left = g.topLeft + (g.bottomLeft - g.topLeft) * cy;
+  const right = g.topRight + (g.bottomRight - g.topRight) * cy;
+  const nx = (px - left) / Math.max(1, right - left);
+  return {
+    nx: Math.max(0.03, Math.min(0.97, nx)),
+    ny: Math.max(0.04, Math.min(0.96, ny)),
+  };
+}
+
+function tracePitchQuad(ctx, g, x0, y0, x1, y1) {
+  const p00 = projectPitch(x0, y0, g);
+  const p10 = projectPitch(x1, y0, g);
+  const p11 = projectPitch(x1, y1, g);
+  const p01 = projectPitch(x0, y1, g);
+  ctx.beginPath();
+  ctx.moveTo(p00.x, p00.y);
+  ctx.lineTo(p10.x, p10.y);
+  ctx.lineTo(p11.x, p11.y);
+  ctx.lineTo(p01.x, p01.y);
+  ctx.closePath();
+}
+
+function drawPitchLine(ctx, g, x0, y0, x1, y1, crookedSeed = 0) {
+  const steps = crookedSeed ? 10 : 1;
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    const nx = x0 + (x1 - x0) * f;
+    const ny = y0 + (y1 - y0) * f;
+    const pt = projectPitch(nx, ny, g);
+    const jitter =
+      crookedSeed && i > 0 && i < steps
+        ? Math.sin(crookedSeed * 11.3 + i * 2.7) * 2.0
+        : 0;
+    if (i === 0) ctx.moveTo(pt.x + jitter, pt.y + jitter * 0.6);
+    else ctx.lineTo(pt.x + jitter, pt.y + jitter * 0.6);
+  }
+  ctx.stroke();
+}
+
+// Tettoia / struttura metallica nella parte alta del Canvas (incornicia pulito sotto status bar iOS)
+function drawRoofStructure(ctx, w, { style = 'metal', accent = '#38bdf8', lights = 4 } = {}) {
+  const roofH = style === 'wood' ? 11 : 15;
+  ctx.save();
+
+  // Fascia scura superiore anti-alone dietro status bar iOS
+  ctx.fillStyle = '#070c16';
+  ctx.fillRect(0, 0, w, roofH);
+
+  if (style === 'wood') {
+    ctx.fillStyle = '#4a321b';
+    ctx.fillRect(0, roofH - 4, w, 4);
+    ctx.restore();
+    return;
+  }
+
+  // Trave metallica reticolare (traliccio)
+  ctx.strokeStyle = style === 'futuristic' ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.28)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(0, roofH - 1);
+  ctx.lineTo(w, roofH - 1);
+  for (let x = 0; x < w; x += 22) {
+    ctx.moveTo(x, 3);
+    ctx.lineTo(x + 11, roofH - 2);
+    ctx.lineTo(x + 22, 3);
+  }
+  ctx.stroke();
+
+  if (style === 'futuristic') {
+    ctx.fillStyle = accent;
+    ctx.globalAlpha = 0.55;
+    ctx.fillRect(0, roofH - 2, w, 1.8);
+    ctx.globalAlpha = 1;
+  }
+
+  // Corpi faro agganciati sotto la tettoia
+  if (lights > 0) {
+    for (let i = 0; i < lights; i++) {
+      const fx = w * ((i + 0.5) / lights);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(fx - 10, roofH - 2, 20, 6);
+      ctx.fillStyle = style === 'futuristic' ? '#e0f2fe' : '#fef9c3';
+      ctx.fillRect(fx - 7, roofH + 2, 14, 2.5);
+    }
+  }
+  ctx.restore();
+}
+
+// Bandierine d'angolo che sventolano nei colori sociali
+function drawCornerFlags(ctx, g, t, clubInfo) {
+  const corners = [
+    { nx: 0, ny: 0 },
+    { nx: 1, ny: 0 },
+    { nx: 0, ny: 1 },
+    { nx: 1, ny: 1 },
+  ];
+  ctx.save();
+  for (let i = 0; i < corners.length; i++) {
+    const pt = projectPitch(corners[i].nx, corners[i].ny, g);
+    const hPole = 13 * pt.scale;
+    const wave = Math.sin(t * 7.5 + i * 1.4) * 2.4;
+
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(pt.x, pt.y);
+    ctx.lineTo(pt.x, pt.y - hPole);
+    ctx.stroke();
+
+    ctx.fillStyle = i % 2 === 0 ? clubInfo.primary : clubInfo.secondary;
+    ctx.beginPath();
+    ctx.moveTo(pt.x, pt.y - hPole);
+    ctx.lineTo(pt.x + 8 * pt.scale, pt.y - hPole + 2.5 + wave * 0.4);
+    ctx.lineTo(pt.x, pt.y - hPole + 5.5);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Leggera texture e riflesso diagonale sull'erba
+function drawTurfTexture(ctx, g, alpha = 0.08) {
+  ctx.save();
+  tracePitchQuad(ctx, g, 0, 0, 1, 1);
+  ctx.clip();
+
+  // Riflesso morbido diagonale sul prato
+  const sheen = ctx.createLinearGradient(g.topLeft, g.topY, g.bottomRight, g.bottomY);
+  sheen.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+  sheen.addColorStop(0.45, 'rgba(255, 255, 255, 0)');
+  sheen.addColorStop(0.7, `rgba(255, 255, 255, ${(alpha * 0.65).toFixed(3)})`);
+  sheen.addColorStop(1, 'rgba(0, 0, 0, 0.12)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(0, g.topY, g.w, g.height);
+
+  // Sottile grana orizzontale di rasatura
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 12; i++) {
+    const ptL = projectPitch(0, i / 12, g);
+    const ptR = projectPitch(1, i / 12, g);
+    ctx.beginPath();
+    ctx.moveTo(ptL.x, ptL.y);
+    ctx.lineTo(ptR.x, ptR.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Cartelloni LED con testo scorrevole continuo
+function drawScrollingLED(ctx, g, t, { bg, textCol, message }) {
+  const bx = g.topLeft;
+  const by = g.topY - 11;
+  const bw = g.topW;
+  const bh = 8.5;
+
+  ctx.save();
+  ctx.fillStyle = bg;
+  ctx.fillRect(bx, by, bw, bh);
+
+  ctx.beginPath();
+  ctx.rect(bx + 1, by, bw - 2, bh);
+  ctx.clip();
+
+  ctx.fillStyle = textCol;
+  ctx.font = '800 5.8px system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+
+  const unit = `${message}   ★   `;
+  const unitW = Math.max(120, ctx.measureText(unit).width);
+  const offset = (t * 32) % unitW;
+
+  for (let x = bx - offset; x < bx + bw + unitW; x += unitW) {
+    ctx.fillText(unit, x, by + bh * 0.54);
+  }
+  ctx.restore();
+}
+
+function drawPerspectiveLines(ctx, g, { stroke = 'rgba(255,255,255,0.9)', lineWidth = 2, crooked = false } = {}) {
+  ctx.save();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+
+  drawPitchLine(ctx, g, 0, 0, 1, 0, crooked ? 1 : 0);
+  drawPitchLine(ctx, g, 1, 0, 1, 1, crooked ? 2 : 0);
+  drawPitchLine(ctx, g, 1, 1, 0, 1, crooked ? 3 : 0);
+  drawPitchLine(ctx, g, 0, 1, 0, 0, crooked ? 4 : 0);
+  drawPitchLine(ctx, g, 0.5, 0, 0.5, 1, crooked ? 5 : 0);
+
+  const center = projectPitch(0.5, 0.5, g);
+  const rx = center.rowW * 0.115;
+  const ry = g.height * 0.155;
+  ctx.beginPath();
+  ctx.ellipse(center.x, center.y, rx, ry, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = stroke;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  tracePitchQuad(ctx, g, 0, 0.25, 0.16, 0.75);
+  ctx.stroke();
+  tracePitchQuad(ctx, g, 0.84, 0.25, 1, 0.75);
+  ctx.stroke();
+
+  tracePitchQuad(ctx, g, 0, 0.37, 0.065, 0.63);
+  ctx.stroke();
+  tracePitchQuad(ctx, g, 0.935, 0.37, 1, 0.63);
+  ctx.stroke();
+
+  const penL = projectPitch(0.115, 0.5, g);
+  const penR = projectPitch(0.885, 0.5, g);
+  ctx.beginPath();
+  ctx.arc(penL.x, penL.y, 2.2, 0, Math.PI * 2);
+  ctx.arc(penR.x, penR.y, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// Porte tridimensionali con rete elastica che si gonfia al gol
+function drawGoals3D(ctx, g, { brokenRight = false, glow = false, netBulgeLeft = 0, netBulgeRight = 0 } = {}) {
+  const drawOneGoal = (side, bulge) => {
+    const isRight = side === 'right';
+    const xLine = isRight ? 1 : 0;
+    const dir = isRight ? 1 : -1;
+    const topPost = projectPitch(xLine, 0.365, g);
+    const botPost = projectPitch(xLine, 0.635, g);
+
+    const postHTop = 19 * topPost.scale;
+    const postHBot = 22 * botPost.scale;
+    const depthTop = 13 * topPost.scale * dir;
+    const depthBot = 16 * botPost.scale * dir;
+    const bulgePx = bulge * 13 * dir;
+
+    const ft = { x: topPost.x, y: topPost.y - postHTop };
+    const fb = { x: botPost.x, y: botPost.y - postHBot };
+    const btGround = { x: topPost.x + depthTop, y: topPost.y };
+    const bbGround = { x: botPost.x + depthBot, y: botPost.y };
+    const btTop = { x: btGround.x + bulgePx * 0.45, y: btGround.y - postHTop * 0.86 };
+    const bbTop = { x: bbGround.x + bulgePx * 0.45, y: bbGround.y - postHBot * 0.86 };
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.beginPath();
+    ctx.moveTo(topPost.x, topPost.y);
+    ctx.lineTo(btGround.x, btGround.y);
+    ctx.lineTo(bbGround.x, bbGround.y);
+    ctx.lineTo(botPost.x, botPost.y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = glow ? 'rgba(186, 230, 253, 0.58)' : 'rgba(241, 245, 249, 0.48)';
+    ctx.lineWidth = 1;
+
+    ctx.fillStyle = glow ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(ft.x, ft.y);
+    ctx.lineTo(btTop.x, btTop.y);
+    ctx.quadraticCurveTo(
+      (btGround.x + bbGround.x) * 0.5 + bulgePx * 1.4,
+      (btGround.y + bbGround.y) * 0.5 - 10,
+      bbTop.x,
+      bbTop.y
+    );
+    ctx.lineTo(fb.x, fb.y);
+    ctx.closePath();
+    ctx.fill();
+
+    for (let i = 0; i <= 5; i++) {
+      if (brokenRight && isRight && (i === 2 || i === 3)) continue;
+      const f = i / 5;
+      const sx = btTop.x + (btGround.x - btTop.x) * f;
+      const sy = btTop.y + (btGround.y - btTop.y) * f;
+      const ex = bbTop.x + (bbGround.x - bbTop.x) * f;
+      const ey = bbTop.y + (bbGround.y - bbTop.y) * f;
+      const midBulge = Math.sin(f * Math.PI) * bulgePx * 1.35 + bulgePx * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.quadraticCurveTo((sx + ex) * 0.5 + midBulge, (sy + ey) * 0.5, ex, ey);
+      ctx.stroke();
+    }
+
+    for (let j = 1; j <= 4; j++) {
+      if (brokenRight && isRight && j === 3) continue;
+      const f = j / 5;
+      const tx = btTop.x + (bbTop.x - btTop.x) * f;
+      const ty = btTop.y + (bbTop.y - btTop.y) * f;
+      const gx = btGround.x + (bbGround.x - btGround.x) * f;
+      const gy = btGround.y + (bbGround.y - btGround.y) * f;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.quadraticCurveTo((tx + gx) * 0.5 + bulgePx * 1.15, (ty + gy) * 0.5, gx, gy);
+      ctx.stroke();
+    }
+
+    for (let k = 1; k <= 3; k++) {
+      const f = k / 4;
+      const x1 = ft.x + (fb.x - ft.x) * f;
+      const y1 = ft.y + (fb.y - ft.y) * f;
+      const x2 = btTop.x + (bbTop.x - btTop.x) * f;
+      const y2 = btTop.y + (bbTop.y - btTop.y) * f;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(203, 213, 225, 0.72)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(ft.x, ft.y);
+    ctx.lineTo(btTop.x, btTop.y);
+    ctx.lineTo(btGround.x, btGround.y);
+    ctx.moveTo(fb.x, fb.y);
+    ctx.lineTo(bbTop.x, bbTop.y);
+    ctx.lineTo(bbGround.x, bbGround.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = glow ? '#e0f2fe' : '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    if (glow) {
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 10;
+    }
+    ctx.beginPath();
+    ctx.moveTo(topPost.x, topPost.y);
+    ctx.lineTo(ft.x, ft.y);
+    ctx.lineTo(fb.x, fb.y);
+    ctx.lineTo(botPost.x, botPost.y);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  drawOneGoal('left', netBulgeLeft);
+  drawOneGoal('right', netBulgeRight);
+}
+
+// Bandiere e sciarpe animate sugli spalti nei colori sociali
+function drawCrowdFlagsAndScarves(ctx, w, topY, t, env, clubInfo, count = 6) {
+  ctx.save();
+  for (let i = 0; i < count; i++) {
+    const fx = 0.12 + (i / Math.max(1, count - 1)) * 0.76;
+    const x = w * fx;
+    const ola = getOlaOffset(fx, env);
+    const y = 24 + (i % 2) * (topY * 0.24) - ola;
+
+    if (i % 2 === 0) {
+      // Bandierone sventolante
+      const sway = Math.sin(t * 5.2 + i * 1.9) * 5;
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(x, y + 7);
+      ctx.lineTo(x + sway * 0.35, y - 9);
+      ctx.stroke();
+
+      ctx.fillStyle = clubInfo.primary;
+      ctx.beginPath();
+      ctx.moveTo(x + sway * 0.35, y - 9);
+      ctx.lineTo(x + 12 + sway * 0.6, y - 6);
+      ctx.lineTo(x + sway * 0.2, y - 2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = clubInfo.secondary;
+      ctx.fillRect(x + sway * 0.3 + 2, y - 6.5, 5, 2.2);
+    } else {
+      // Sciarpa tesa al cielo
+      const lift = Math.abs(Math.sin(t * 4.5 + i)) * 2.5;
+      ctx.fillStyle = clubInfo.primary;
+      ctx.fillRect(x - 7, y - lift, 14, 3.2);
+      ctx.fillStyle = clubInfo.secondary;
+      ctx.fillRect(x - 2.5, y - lift, 5, 3.2);
+    }
+  }
+  ctx.restore();
+}
+
+function getOlaOffset(normX, env) {
+  if (!env || env.olaIntensity <= 0.03) return 0;
+  const dist = Math.abs(normX - (env.olaPhase % 1.25) + 0.12);
+  const crest = Math.exp(-(dist * dist) / 0.018);
+  return crest * 7.5 * env.olaIntensity;
+}
+
+function drawStrayDog(ctx, g, t, env) {
+  if (!env.dog || !env.dog.active) return;
+  const d = env.dog;
+  const pt = projectPitch(d.nx, d.ny, g);
+  const bob = Math.abs(Math.sin(t * 14)) * 2.4;
+
+  ctx.save();
+  ctx.translate(pt.x, pt.y - bob);
+  ctx.scale(d.dir * pt.scale, pt.scale);
+
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(0, 7 + bob, 9, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#a16207';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 8, 4.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(8, -3, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#713f12';
+  ctx.beginPath();
+  ctx.ellipse(6.5, -5.2, 2, 3, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#a16207';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-7, -1);
+  ctx.lineTo(-12, -5 + Math.sin(t * 22) * 3);
+  ctx.stroke();
+
+  const leg = Math.sin(t * 18) * 3;
+  ctx.strokeStyle = '#713f12';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(-4, 3);
+  ctx.lineTo(-4 - leg, 8);
+  ctx.moveTo(4, 3);
+  ctx.lineTo(4 + leg, 8);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawDiagonalRain(ctx, w, h, t) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(186, 230, 253, 0.23)';
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  for (let i = 0; i < 42; i++) {
+    const seed = i * 73.13;
+    const rx = ((seed * 19 + t * 145) % (w + 60)) - 30;
+    const ry = 14 + ((seed * 31 + t * 340) % (h + 26));
+    ctx.moveTo(rx, ry);
+    ctx.lineTo(rx - 6, ry + 14);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 0 — TERZA CATEGORIA
+function renderTerzaCategoria(ctx, w, h, g, t, env, clubInfo) {
+  const skyGrad = ctx.createLinearGradient(0, 10, 0, g.topY);
+  skyGrad.addColorStop(0, '#161f26');
+  skyGrad.addColorStop(1, '#445036');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = '#3c3224';
+  ctx.fillRect(0, g.topY - 6, w, h - g.topY + 6);
+
+  // Staccionata di legno
+  ctx.strokeStyle = '#78502b';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(g.topLeft - 14, g.topY - 12);
+  ctx.lineTo(g.topRight + 14, g.topY - 12);
+  ctx.stroke();
+  for (let x = g.topLeft - 10; x <= g.topRight + 10; x += 26) {
+    ctx.fillStyle = '#5c3b1e';
+    ctx.fillRect(x, g.topY - 21, 4, 15);
+  }
+
+  // Spettatori sparsi con ombrelli
+  const crowdX = [0.16, 0.31, 0.49, 0.66, 0.82];
+  const shirtCols = [clubInfo.primary, '#2563eb', '#eab308', '#f97316', clubInfo.secondary];
+  crowdX.forEach((fx, i) => {
+    const sx = w * fx;
+    const ola = getOlaOffset(fx, env);
+    const sy = g.topY - 27 - ola + Math.sin(t * 2.5 + i * 2) * 1.1;
+    ctx.fillStyle = shirtCols[i % shirtCols.length];
+    ctx.beginPath();
+    ctx.arc(sx, sy + 6, 5, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#fde68a';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+    if (i % 2 === 0) {
+      ctx.fillStyle = i === 0 ? '#1d4ed8' : '#b91c1c';
+      ctx.beginPath();
+      ctx.arc(sx, sy - 4, 8, Math.PI, 0);
+      ctx.fill();
+    }
+  });
+
+  // Campo in terra battuta / fango
+  const dirtGrad = ctx.createLinearGradient(0, g.topY, 0, g.bottomY);
+  dirtGrad.addColorStop(0, '#6e5033');
+  dirtGrad.addColorStop(0.5, '#7e5d3c');
+  dirtGrad.addColorStop(1, '#5e4329');
+  tracePitchQuad(ctx, g, 0, 0, 1, 1);
+  ctx.fillStyle = dirtGrad;
+  ctx.fill();
+
+  const grassPatches = [
+    [0.16, 0.22, 0.16, 0.13],
+    [0.78, 0.26, 0.15, 0.15],
+    [0.24, 0.78, 0.18, 0.12],
+    [0.68, 0.74, 0.17, 0.14],
+  ];
+  ctx.fillStyle = 'rgba(84, 114, 48, 0.56)';
+  for (const [gx, gy, gw, gh] of grassPatches) {
+    const pt = projectPitch(gx, gy, g);
+    ctx.beginPath();
+    ctx.ellipse(pt.x, pt.y, gw * pt.rowW * 0.45, gh * g.height * 0.45, 0.18, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const mudSpots = [
+    [0.44, 0.38, 0.08, 0.05],
+    [0.58, 0.66, 0.09, 0.055],
+    [0.13, 0.52, 0.06, 0.07],
+  ];
+  for (let i = 0; i < mudSpots.length; i++) {
+    const [mx, my, mw, mh] = mudSpots[i];
+    const pt = projectPitch(mx, my, g);
+    ctx.fillStyle = 'rgba(56, 36, 19, 0.68)';
+    ctx.beginPath();
+    ctx.ellipse(pt.x, pt.y, mw * pt.rowW, mh * g.height, -0.1, 0, Math.PI * 2);
+    ctx.fill();
+
+    const rip = (t * 1.4 + i * 0.37) % 1;
+    ctx.strokeStyle = `rgba(186, 230, 253, ${(1 - rip) * 0.35})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(pt.x, pt.y, rip * mw * pt.rowW * 0.7, rip * mh * g.height * 0.7, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  drawPerspectiveLines(ctx, g, { stroke: 'rgba(241, 245, 249, 0.66)', lineWidth: 1.9, crooked: true });
+  drawCornerFlags(ctx, g, t, clubInfo);
+  drawGoals3D(ctx, g, {
+    brokenRight: true,
+    netBulgeLeft: env.netBulgeLeft,
+    netBulgeRight: env.netBulgeRight,
+  });
+  drawStrayDog(ctx, g, t, env);
+  drawDiagonalRain(ctx, w, h, t);
+  drawRoofStructure(ctx, w, { style: 'wood', lights: 0 });
+}
+
+// 1 — PROMOZIONE (Tramonto caldo, tribunetta cemento, tettoia leggera)
+function renderPromozione(ctx, w, h, g, t, env, clubInfo) {
+  const skyGrad = ctx.createLinearGradient(0, 12, w, g.topY);
+  skyGrad.addColorStop(0, '#1e1b33');
+  skyGrad.addColorStop(0.55, '#864030');
+  skyGrad.addColorStop(1, '#d97732');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, w, g.topY);
+
+  ctx.fillStyle = '#293e28';
+  ctx.fillRect(0, g.topY - 4, w, h - g.topY + 4);
+
+  const stTopL = g.topLeft + 16;
+  const stTopR = g.topRight - 16;
+  const stBotL = g.topLeft + 4;
+  const stBotR = g.topRight - 4;
+  const stTopY = 18;
+  const stBotY = g.topY - 12;
+
+  ctx.fillStyle = '#475569';
+  ctx.beginPath();
+  ctx.moveTo(stTopL, stTopY);
+  ctx.lineTo(stTopR, stTopY);
+  ctx.lineTo(stBotR, stBotY);
+  ctx.lineTo(stBotL, stBotY);
+  ctx.closePath();
+  ctx.fill();
+
+  for (let row = 0; row < 4; row++) {
+    const f = (row + 0.5) / 4.2;
+    const ry = stTopY + (stBotY - stTopY) * f;
+    const lx = stTopL + (stBotL - stTopL) * f + 4;
+    const rx = stTopR + (stBotR - stTopR) * f - 4;
+    ctx.fillStyle = row % 2 === 0 ? '#94a3b8' : '#7c8ba1';
+    ctx.fillRect(lx, ry, rx - lx, 4.5);
+  }
+
+  const crowdCols = [clubInfo.primary, clubInfo.secondary, '#facc15', '#38bdf8', '#22c55e', '#fb923c'];
+  for (let i = 0; i < 36; i++) {
+    const row = i % 3;
+    const col = Math.floor(i / 3);
+    const fx = 0.18 + (col / 11.5) * 0.64;
+    const ola = getOlaOffset(fx, env);
+    const sx = w * fx + row * 2.5;
+    const sy = stTopY + 10 + row * 12 - ola + Math.sin(t * 3.2 + i) * 1.1;
+    ctx.fillStyle = crowdCols[i % crowdCols.length];
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3.1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  drawCrowdFlagsAndScarves(ctx, w, g.topY, t, env, clubInfo, 4);
+
+  const turfGrad = ctx.createLinearGradient(0, g.topY, 0, g.bottomY);
+  turfGrad.addColorStop(0, '#3a843d');
+  turfGrad.addColorStop(1, '#2f7234');
+  tracePitchQuad(ctx, g, 0, 0, 1, 1);
+  ctx.fillStyle = turfGrad;
+  ctx.fill();
+
+  const patches = [
+    [0.2, 0.3, 0.22, 0.2, '#4c9c46'],
+    [0.75, 0.32, 0.24, 0.22, '#327437'],
+    [0.5, 0.64, 0.26, 0.2, '#4c9b47'],
+    [0.09, 0.5, 0.1, 0.22, '#7d6b47'],
+    [0.91, 0.5, 0.1, 0.22, '#7d6b47'],
+  ];
+  for (const [px, py, pw, ph, col] of patches) {
+    const pt = projectPitch(px, py, g);
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.52;
+    ctx.beginPath();
+    ctx.ellipse(pt.x, pt.y, pw * pt.rowW * 0.5, ph * g.height * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  drawTurfTexture(ctx, g, 0.07);
+  drawPerspectiveLines(ctx, g, { stroke: 'rgba(255,255,255,0.86)', lineWidth: 2 });
+  drawCornerFlags(ctx, g, t, clubInfo);
+  drawGoals3D(ctx, g, {
+    netBulgeLeft: env.netBulgeLeft,
+    netBulgeRight: env.netBulgeRight,
+  });
+
+  const benchY = g.bottomY + 4;
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(g.bottomLeft + g.bottomW * 0.12, benchY, g.bottomW * 0.22, 10);
+  ctx.fillRect(g.bottomLeft + g.bottomW * 0.66, benchY, g.bottomW * 0.22, 10);
+  ctx.fillStyle = clubInfo.primary;
+  ctx.fillRect(g.bottomLeft + g.bottomW * 0.12, benchY, g.bottomW * 0.22, 3);
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillRect(g.bottomLeft + g.bottomW * 0.66, benchY, g.bottomW * 0.22, 3);
+
+  // Luce da tramonto calda contenuta sotto la tettoia
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const sunGlow = ctx.createRadialGradient(w * 0.9, 28, 6, w * 0.85, g.topY * 0.8, w * 0.9);
+  sunGlow.addColorStop(0, 'rgba(255, 195, 95, 0.22)');
+  sunGlow.addColorStop(0.55, 'rgba(251, 146, 60, 0.08)');
+  sunGlow.addColorStop(1, 'rgba(251, 146, 60, 0)');
+  ctx.fillStyle = sunGlow;
+  ctx.fillRect(0, 14, w, h - 14);
+  ctx.restore();
+
+  drawRoofStructure(ctx, w, { style: 'metal', lights: 2 });
+}
+
+// 2 — SERIE C (Strisce prospettiche, curve, LED scorrevole, fumogeni, bandiere)
+function renderSerieC(ctx, w, h, g, t, env, clubInfo) {
+  ctx.fillStyle = '#102019';
+  ctx.fillRect(0, 0, w, h);
+
+  const standGrad = ctx.createLinearGradient(0, 14, 0, g.topY - 12);
+  standGrad.addColorStop(0, '#131d2f');
+  standGrad.addColorStop(1, '#334155');
+  ctx.fillStyle = standGrad;
+  ctx.beginPath();
+  ctx.moveTo(w * 0.06, 14);
+  ctx.lineTo(w * 0.94, 14);
+  ctx.lineTo(g.topRight + 8, g.topY - 12);
+  ctx.lineTo(g.topLeft - 8, g.topY - 12);
+  ctx.closePath();
+  ctx.fill();
+
+  // Curve
+  ctx.fillStyle = '#1b273b';
+  ctx.beginPath();
+  ctx.moveTo(0, g.topY - 4);
+  ctx.lineTo(g.topLeft - 12, g.topY);
+  ctx.lineTo(g.bottomLeft - 10, g.bottomY);
+  ctx.lineTo(0, g.bottomY + 12);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(w, g.topY - 4);
+  ctx.lineTo(g.topRight + 12, g.topY);
+  ctx.lineTo(g.bottomRight + 10, g.bottomY);
+  ctx.lineTo(w, g.bottomY + 12);
+  ctx.closePath();
+  ctx.fill();
+
+  const crowdCols = [clubInfo.primary, clubInfo.secondary, '#facc15', '#38bdf8', '#22c55e', '#fb7185'];
+  for (let i = 0; i < 96; i++) {
+    const fx = 0.08 + ((i * 37) % 84) / 100;
+    const ola = getOlaOffset(fx, env);
+    const sx = w * fx;
+    const sy = 20 + (i % 5) * ((g.topY - 38) / 4.4) - ola + Math.sin(t * 4 + i) * 1.1;
+    ctx.fillStyle = crowdCols[i % crowdCols.length];
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  drawCrowdFlagsAndScarves(ctx, w, g.topY, t, env, clubInfo, 6);
+
+  drawScrollingLED(ctx, g, t, {
+    bg: clubInfo.primary,
+    textCol: '#ffffff',
+    message: `FORZA ${clubInfo.name.toUpperCase()}  •  SERIE C LIVE  •  CARNI PEPPINO  •  BAR SPORT`,
+  });
+
+  const stripes = 10;
+  for (let i = 0; i < stripes; i++) {
+    tracePitchQuad(ctx, g, i / stripes, 0, (i + 1) / stripes + 0.002, 1);
+    ctx.fillStyle = i % 2 === 0 ? '#1f9e48' : '#178339';
+    ctx.fill();
+  }
+
+  drawTurfTexture(ctx, g, 0.085);
+  drawPerspectiveLines(ctx, g, { stroke: 'rgba(255,255,255,0.92)', lineWidth: 2 });
+  drawCornerFlags(ctx, g, t, clubInfo);
+  drawGoals3D(ctx, g, {
+    netBulgeLeft: env.netBulgeLeft,
+    netBulgeRight: env.netBulgeRight,
+  });
+
+  // Fumogeni colorati dalle curve
+  const smokeSources = [
+    { x: g.topLeft * 0.45, y: g.cy - 24, col: '239, 68, 68' },
+    { x: g.bottomLeft * 0.55, y: g.cy + 28, col: '250, 204, 21' },
+    { x: w - g.topLeft * 0.45, y: g.cy - 20, col: '56, 189, 248' },
+    { x: w - g.bottomLeft * 0.55, y: g.cy + 26, col: '239, 68, 68' },
+  ];
+  ctx.save();
+  for (const s of smokeSources) {
+    for (let k = 0; k < 5; k++) {
+      const phase = (t * 0.45 + k * 0.2) % 1;
+      const rx = s.x + Math.sin(t * 2 + k * 1.7) * 7 + phase * 8;
+      const ry = s.y - phase * 26;
+      const rad = 5 + phase * 13;
+      ctx.fillStyle = `rgba(${s.col}, ${((1 - phase) * 0.34).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(rx, ry, rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  drawRoofStructure(ctx, w, { style: 'metal', lights: 3 });
+}
+
+// 3 — SERIE A (Tettoia metallica con fari, riflettori 'lighter' direzionati verso il campo, LED scorrevole)
+function renderSerieA(ctx, w, h, g, t, env, clubInfo) {
+  ctx.fillStyle = '#09101d';
+  ctx.fillRect(0, 0, w, h);
+
+  const standGrad = ctx.createLinearGradient(0, 14, 0, g.topY);
+  standGrad.addColorStop(0, '#0c1424');
+  standGrad.addColorStop(0.55, '#1e293b');
+  standGrad.addColorStop(1, '#334155');
+  ctx.fillStyle = standGrad;
+  ctx.fillRect(0, 14, w, g.topY - 20);
+
+  ctx.fillStyle = clubInfo.primary;
+  ctx.fillRect(0, 14 + (g.topY - 20) * 0.44, w, 3);
+
+  const crowdCols = [clubInfo.primary, clubInfo.secondary, '#f8fafc', '#38bdf8', '#facc15', '#c084fc'];
+  for (let i = 0; i < 165; i++) {
+    const fx = 0.02 + ((i * 29) % 96) / 100;
+    const ola = getOlaOffset(fx, env);
+    const sx = w * fx;
+    const sy = 19 + (i % 6) * ((g.topY - 36) / 5.4) - ola + Math.sin(t * 5 + i) * 1.0;
+    ctx.fillStyle = crowdCols[i % crowdCols.length];
+    ctx.fillRect(sx, sy, 3.0, 3.0);
+  }
+  drawCrowdFlagsAndScarves(ctx, w, g.topY, t, env, clubInfo, 8);
+
+  drawScrollingLED(ctx, g, t, {
+    bg: '#4c1d95',
+    textCol: '#ffffff',
+    message: `SERIE A DIRETTA HD  •  FORZA ${clubInfo.name.toUpperCase()}  •  TUTTO ESAURITO`,
+  });
+
+  const stripes = 12;
+  for (let i = 0; i < stripes; i++) {
+    tracePitchQuad(ctx, g, i / stripes, 0, (i + 1) / stripes + 0.002, 1);
+    ctx.fillStyle = i % 2 === 0 ? '#16a34a' : '#14803c';
+    ctx.fill();
+  }
+
+  drawTurfTexture(ctx, g, 0.1);
+  drawPerspectiveLines(ctx, g, { stroke: 'rgba(255,255,255,0.95)', lineWidth: 2.1 });
+  drawCornerFlags(ctx, g, t, clubInfo);
+  drawGoals3D(ctx, g, {
+    netBulgeLeft: env.netBulgeLeft,
+    netBulgeRight: env.netBulgeRight,
+  });
+
+  // Luci volumetriche che partono dai 4 fari sotto la tettoia (y=17, mai sopra la status bar!)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 4; i++) {
+    const fx = w * ((i + 0.5) / 4);
+    const fy = 17;
+    const tx = w * (0.2 + i * 0.2);
+    const ty = h * 0.86;
+    const beamGrad = ctx.createLinearGradient(fx, fy, tx, ty);
+    beamGrad.addColorStop(0, 'rgba(255, 252, 232, 0.22)');
+    beamGrad.addColorStop(0.55, 'rgba(255, 250, 220, 0.07)');
+    beamGrad.addColorStop(1, 'rgba(255, 250, 220, 0)');
+    ctx.fillStyle = beamGrad;
+    ctx.beginPath();
+    ctx.moveTo(fx - 7, fy);
+    ctx.lineTo(fx + 7, fy);
+    ctx.lineTo(tx + w * 0.18, ty);
+    ctx.lineTo(tx - w * 0.18, ty);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Flash fotografici sugli spalti
+  ctx.save();
+  for (let i = 0; i < 7; i++) {
+    const pulse = Math.sin(t * 8.5 + i * 2.71);
+    if (pulse > 0.91) {
+      const fx = ((i * 79 + Math.floor(t * 2) * 31) % Math.max(20, Math.floor(w - 20))) + 10;
+      const fy = 20 + ((i * 23) % Math.max(12, Math.floor(g.topY - 34)));
+      const alpha = (pulse - 0.91) / 0.09;
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(fx, fy, 4.6 * alpha + 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  drawRoofStructure(ctx, w, { style: 'metal', lights: 4 });
+}
+
+// 4 — NOTTE EUROPEA (Arena futuristica, tettoia LED con fari volumetrici, stelle, fuochi)
+function renderNotteEuropea(ctx, w, h, g, t, env, clubInfo) {
+  const bgGrad = ctx.createLinearGradient(0, 14, 0, h);
+  bgGrad.addColorStop(0, '#070c16');
+  bgGrad.addColorStop(0.35, '#0b1a3d');
+  bgGrad.addColorStop(1, '#040a1a');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, w, h);
+
+  for (let i = 0; i < 140; i++) {
+    const fx = 0.02 + ((i * 43) % 96) / 100;
+    const ola = getOlaOffset(fx, env);
+    const sx = w * fx;
+    const sy = 19 + (i % 6) * ((g.topY - 36) / 5.4) - ola;
+    const twinkle = 0.45 + 0.55 * Math.sin(t * 4.2 + i * 1.9);
+    ctx.fillStyle =
+      i % 5 === 0
+        ? `rgba(251, 191, 36, ${twinkle.toFixed(2)})`
+        : `rgba(186, 230, 253, ${(twinkle * 0.85).toFixed(2)})`;
+    ctx.fillRect(sx, sy, 2.6, 2.6);
+  }
+  drawCrowdFlagsAndScarves(ctx, w, g.topY, t, env, clubInfo, 8);
+
+  drawScrollingLED(ctx, g, t, {
+    bg: '#0f295c',
+    textCol: '#fef08a',
+    message: `NOTTE EUROPEA  •  ${clubInfo.name.toUpperCase()}  •  ARENA DELLE STELLE  •  FINALE LIVE`,
+  });
+
+  const stripes = 12;
+  for (let i = 0; i < stripes; i++) {
+    tracePitchQuad(ctx, g, i / stripes, 0, (i + 1) / stripes + 0.002, 1);
+    ctx.fillStyle = i % 2 === 0 ? '#0d7e49' : '#0a653a';
+    ctx.fill();
+  }
+
+  drawTurfTexture(ctx, g, 0.11);
+
+  ctx.save();
+  tracePitchQuad(ctx, g, -0.015, -0.02, 1.015, 1.02);
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.58)';
+  ctx.lineWidth = 2.4;
+  ctx.shadowColor = '#38bdf8';
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+  ctx.restore();
+
+  drawPerspectiveLines(ctx, g, { stroke: 'rgba(224, 242, 254, 0.94)', lineWidth: 2 });
+  drawCornerFlags(ctx, g, t, clubInfo);
+  drawGoals3D(ctx, g, {
+    glow: true,
+    netBulgeLeft: env.netBulgeLeft,
+    netBulgeRight: env.netBulgeRight,
+  });
+
+  // Fasci volumetrici rotanti ancorati sotto la tettoia (y=17)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const beamOrigins = [
+    { x: w * 0.14, y: 17, phase: 0, col: 'rgba(56, 189, 248, 0.16)' },
+    { x: w * 0.86, y: 17, phase: 2.1, col: 'rgba(250, 204, 21, 0.14)' },
+    { x: w * 0.5, y: 17, phase: 4.2, col: 'rgba(129, 140, 248, 0.14)' },
+  ];
+  for (const b of beamOrigins) {
+    const angle = Math.PI * 0.5 + Math.sin(t * 0.78 + b.phase) * 0.48;
+    const len = h * 1.1;
+    const spread = 0.14;
+    ctx.fillStyle = b.col;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x + Math.cos(angle - spread) * len, b.y + Math.sin(angle - spread) * len);
+    ctx.lineTo(b.x + Math.cos(angle + spread) * len, b.y + Math.sin(angle + spread) * len);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  drawRoofStructure(ctx, w, { style: 'futuristic', accent: '#38bdf8', lights: 4 });
+}
+
+export function renderStadiumTheme(ctx, leagueIndex, w, h, g, t, env, clubInfo, upgrades = {}) {
+  switch (leagueIndex) {
+    case 0:
+      renderTerzaCategoria(ctx, w, h, g, t, env, clubInfo);
+      drawSlowClouds(ctx, w, g.topY, t, 'rgba(148, 163, 184, 0.15)');
+      break;
+    case 1:
+      renderPromozione(ctx, w, h, g, t, env, clubInfo);
+      drawSlowClouds(ctx, w, g.topY, t, 'rgba(253, 186, 116, 0.18)');
+      break;
+    case 2:
+      renderSerieC(ctx, w, h, g, t, env, clubInfo);
+      drawSlowClouds(ctx, w, g.topY, t, 'rgba(226, 232, 240, 0.12)');
+      break;
+    case 3:
+      renderSerieA(ctx, w, h, g, t, env, clubInfo);
+      break;
+    case 4:
+    default:
+      renderNotteEuropea(ctx, w, h, g, t, env, clubInfo);
+      break;
+  }
+
+  // Costruzioni fisiche sbloccate dagli upgrade Club (Curva Ultras sugli spalti superiori, Paninaro, Torri Faro, Store, VIP)
+  renderStadiumBuildings(ctx, w, h, g, t, upgrades, clubInfo, leagueIndex, env);
+}
