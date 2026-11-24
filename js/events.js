@@ -1,7 +1,6 @@
-import { FLASH_EVENTS } from './config.js';
+import { FLASH_EVENTS, INVASION_BOOST_DURATION_MS } from './config.js';
 import {
   addMoney,
-  addGoldTokens,
   activateInvasionBoost,
   computeStats,
 } from './state.js';
@@ -137,13 +136,12 @@ export class FlashEventManager {
     const ev = this.activeEvent;
     const stats = computeStats(state);
     const evMult = stats.research.eventCashMult;
-    const extraTok = stats.research.eventExtraTokens;
+    const extraDurationMs = (stats.research.eventDurationBonusSec || 0) * 1000;
 
-    // A. Invasione di Campo (hit sul prato)
+    // A. Invasione di Campo (hit sul prato — solo boost ×3 potenziato + cassa, zero 🪙!)
     if (ev.kind === 'invasion') {
       if (Math.hypot(pitchNormX - ev.nx, pitchNormY - ev.ny) > 0.15) return null;
       ev.tapsDone += 1;
-      // Scarto laterale quando lo tocchi
       ev.vx = -ev.vx * 1.08;
       if (ev.tapsDone < ev.tapsRequired) {
         return {
@@ -155,20 +153,24 @@ export class FlashEventManager {
       this.activeEvent = null;
       this.nextSpawnIn = randomIntervalSec();
       state.stats.flashEventsHit += 1;
-      activateInvasionBoost(state);
-      const tokens = 3 + extraTok;
-      addGoldTokens(state, tokens);
+      const totalMs = INVASION_BOOST_DURATION_MS + extraDurationMs;
+      const totalSec = Math.round(totalMs / 1000);
+      activateInvasionBoost(state, totalMs);
+      const cash = Math.floor(
+        Math.max(stats.incomePerSec * 18, stats.tapValue * 30, 220 * stats.leagueMult) * evMult
+      );
+      addMoney(state, cash);
       return {
         event: ev,
         completed: true,
-        tokens,
-        cash: 0,
+        tokens: 0,
+        cash,
         freePackId: null,
-        label: `PLACCATO! ×3 (25s) & +${tokens} 🪙`,
+        label: `PLACCATO! ×3 (${totalSec}s) & +cassa`,
       };
     }
 
-    // B. Blackout al Campo (hit sul quadro elettrico in stage coords)
+    // B. Blackout al Campo (hit sul quadro elettrico — maxi rimborso assicurativo, zero 🪙!)
     if (ev.kind === 'blackout') {
       if (Math.hypot(stageNormX - ev.nx, stageNormY - ev.ny) > 0.15) return null;
       ev.tapsDone += 1;
@@ -183,22 +185,20 @@ export class FlashEventManager {
       this.nextSpawnIn = randomIntervalSec();
       state.stats.flashEventsHit += 1;
       const cash = Math.floor(
-        Math.max(stats.incomePerSec * 28, stats.tapValue * 45, 320 * stats.leagueMult) * evMult
+        Math.max(stats.incomePerSec * 42, stats.tapValue * 65, 520 * stats.leagueMult) * evMult
       );
-      const tokens = 3 + extraTok;
       addMoney(state, cash);
-      addGoldTokens(state, tokens);
       return {
         event: ev,
         completed: true,
         cash,
-        tokens,
+        tokens: 0,
         freePackId: null,
-        label: `LUCE RIACCESA! +${tokens} 🪙`,
+        label: 'LUCE RIACCESA! Rimborso ENEL',
       };
     }
 
-    // C. Evento Lampo classico
+    // C. Evento Lampo classico (premi cassa / buste potenziati, zero 🪙!)
     if (Math.hypot(stageNormX - ev.nx, stageNormY - ev.ny) > 0.12) return null;
 
     this.activeEvent = null;
@@ -207,12 +207,10 @@ export class FlashEventManager {
 
     if (ev.id === 'penalty') {
       const cash = Math.floor(
-        Math.max(stats.incomePerSec * 25, stats.tapValue * 40, 220 * stats.leagueMult) * evMult
+        Math.max(stats.incomePerSec * 34, stats.tapValue * 52, 320 * stats.leagueMult) * evMult
       );
-      const tokens = 1 + extraTok;
       addMoney(state, cash);
-      addGoldTokens(state, tokens);
-      return { event: ev, completed: true, cash, tokens, freePackId: null };
+      return { event: ev, completed: true, cash, tokens: 0, freePackId: null };
     }
 
     if (ev.id === 'ballon') {
@@ -224,21 +222,17 @@ export class FlashEventManager {
             : 'oratorio';
       state.freePacks[freePackId] = (state.freePacks[freePackId] || 0) + 1;
       const cash = Math.floor(
-        Math.max(stats.incomePerSec * 12, stats.tapValue * 20, 120 * stats.leagueMult) * evMult
+        Math.max(stats.incomePerSec * 18, stats.tapValue * 28, 180 * stats.leagueMult) * evMult
       );
-      const tokens = 1 + extraTok;
       addMoney(state, cash);
-      addGoldTokens(state, tokens);
-      return { event: ev, completed: true, cash, tokens, freePackId };
+      return { event: ev, completed: true, cash, tokens: 0, freePackId };
     }
 
     // Sceicco in Tribuna
     const cash = Math.floor(
-      Math.max(stats.incomePerSec * 45, stats.tapValue * 65, 450 * stats.leagueMult) * evMult
+      Math.max(stats.incomePerSec * 60, stats.tapValue * 85, 650 * stats.leagueMult) * evMult
     );
-    const tokens = 2 + extraTok;
     addMoney(state, cash);
-    addGoldTokens(state, tokens);
-    return { event: ev, completed: true, cash, tokens, freePackId: null };
+    return { event: ev, completed: true, cash, tokens: 0, freePackId: null };
   }
 }

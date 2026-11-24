@@ -38,6 +38,9 @@ export class SpareggioController {
     this.hasPscon = false;
     this.hasVavelocino = false;
     this.psconShieldAvailable = false;
+    this.matchPrecisionMult = 1.0;   // Occhio di Falco (+3%/liv)
+    this.challengePossMult = 1.0;    // Perk Sprint Finale (+8%+)
+    this.challengePenaltyMult = 1.0; // Perk Nervi d'Acciaio (+10%+)
     this.startersSnapshot = [];
     this.dangerSchedule = [];     // array di timestamp (s) pianificati per i 4-6 PARA!
 
@@ -105,12 +108,16 @@ export class SpareggioController {
     this.hasPscon = stats.hasPscon;
     this.hasVavelocino = stats.hasVavelocino;
     this.psconShieldAvailable = this.hasPscon;
+    this.matchPrecisionMult = stats.research?.matchPrecisionMult || 1.0;
+    this.challengePossMult = 1 + (stats.challengePerks?.possessionPct || 0) / 100;
+    this.challengePenaltyMult = 1 + (stats.challengePerks?.penaltyBarPct || 0) / 100;
     this.attackCooldownDuration = this.hasVavelocino ? 2.4 : ATTACK_COOLDOWN_SEC;
     this.startersSnapshot = getStarterPlayers(state);
 
-    // Finestra PARA! (1.15s..1.45s * tattica, +25% con Loma "Muro Invalicabile")
+    // Finestra PARA! (1.15s..1.45s * tattica, +25% con Loma, +3%/liv Occhio di Falco)
     const lomaMult = this.hasLoma ? 1.25 : 1.0;
-    this.saveWindowSec = (round.saveWindowSec || 1.35) * tactic.saveWindowMult * lomaMult;
+    this.saveWindowSec =
+      (round.saveWindowSec || 1.35) * tactic.saveWindowMult * lomaMult * this.matchPrecisionMult;
 
     // Pianifica 4–6 attacchi avversari ben distribuiti (-1 con Tumas Pscon "Muro di Granito")
     const dangerCount = Math.max(2, tactic.dangerCount - (this.hasPscon ? 1 : 0));
@@ -155,11 +162,11 @@ export class SpareggioController {
 
   _spawnGoalChance() {
     const maxTime = 1.4 * this.tactic.chanceWindowMult;
-    // Fascia verde/oro base [0.54..0.86] (ampiezza 0.32); +22% con Porcotrio ("Istinto Killer")
-    const baseHalf = 0.16 * (this.hasPorcotrio ? 1.22 : 1.0);
+    // Fascia verde/oro base [0.54..0.86] (ampiezza 0.32); +22% Porcotrio + Occhio di Falco
+    const baseHalf = 0.16 * (this.hasPorcotrio ? 1.22 : 1.0) * this.matchPrecisionMult;
     const center = 0.70;
-    const bandMin = Math.max(0.38, center - baseHalf);
-    const bandMax = Math.min(0.93, center + baseHalf);
+    const bandMin = Math.max(0.32, center - baseHalf);
+    const bandMax = Math.min(0.95, center + baseHalf);
 
     this.goalChance = {
       type: 'goal_chance',
@@ -197,7 +204,7 @@ export class SpareggioController {
     if (this.attackCooldown > 0) return null;
 
     const baseGain = isCrit ? 12.0 * this.tactic.critPossessionMult : 7.4;
-    const turboMult = this.hasVavelocino ? 1.25 : 1.0;
+    const turboMult = (this.hasVavelocino ? 1.25 : 1.0) * this.challengePossMult;
     this.possession = Math.min(
       100,
       this.possession + baseGain * this.tactic.possessionMult * this.squadFactor * turboMult
@@ -274,7 +281,7 @@ export class SpareggioController {
 
     // 1. Avanzamento passivo possesso (solo fuori da Azioni Chiave e fuori cooldown)
     if (!this.goalChance && !this.enemyDanger && this.attackCooldown <= 0) {
-      const turboMult = this.hasVavelocino ? 1.25 : 1.0;
+      const turboMult = (this.hasVavelocino ? 1.25 : 1.0) * this.challengePossMult;
       const passiveRate = 11.5 * this.tactic.possessionMult * this.squadFactor * turboMult;
       this.possession = Math.min(100, this.possession + passiveRate * dt);
       if (
@@ -383,7 +390,8 @@ export class SpareggioController {
 
   _initPenalties() {
     this.phase = 'penalties';
-    const greenHalf = 0.14 + (this.tactic.penaltyGreenBonus || 0);
+    const baseGreen = 0.14 + (this.tactic.penaltyGreenBonus || 0);
+    const greenHalf = Math.min(0.28, baseGreen * this.challengePenaltyMult);
     // Passiva Loma ("Muro Invalicabile"): cursore rigori -18% più lento!
     const baseSpeed = this.hasLoma ? 1.27 : 1.55;
     this.penalties = {

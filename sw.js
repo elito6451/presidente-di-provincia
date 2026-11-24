@@ -1,4 +1,4 @@
-const CACHE_NAME = 'presidente-provincia-v5';
+const CACHE_NAME = 'presidente-provincia-v6';
 
 const APP_SHELL = [
   './',

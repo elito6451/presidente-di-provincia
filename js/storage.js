@@ -93,12 +93,29 @@ export function sanitizeState(raw) {
   const sfxEnabled = raw.sfxEnabled !== undefined ? Boolean(raw.sfxEnabled) : legacyAudio;
 
   const totalTaps = Math.floor(sanitizeNumber(raw.stats?.totalTaps, 0, 0));
-  const tutorialStep =
-    raw.tutorialStep !== undefined
-      ? Math.min(4, Math.floor(sanitizeNumber(raw.tutorialStep, 0, 0)))
-      : totalTaps >= 5 || leagueIndex > 0
-        ? 4
-        : 0;
+  const isPreV4 = !raw.version || raw.version < 6;
+  let tutorialStep;
+  if (raw.tutorialStep !== undefined) {
+    const rawStep = Math.floor(sanitizeNumber(raw.tutorialStep, 0, 0));
+    // Migrazione v3.5 -> v4.0: chi aveva già finito il vecchio tutorial (>= 4) passa direttamente a 6 (completato)
+    tutorialStep = isPreV4 && rawStep >= 4 ? 6 : Math.min(6, rawStep);
+  } else {
+    tutorialStep = totalTaps >= 5 || leagueIndex > 0 ? 6 : 0;
+  }
+
+  // Migrazione claimedSeasonPromotions: su salvataggi pre-v4 marca le leghe già superate nella stagione corrente
+  const validLeagueIds = new Set(LEAGUES.map((l) => l.id));
+  let claimedSeasonPromotions = [];
+  if (Array.isArray(raw.claimedSeasonPromotions)) {
+    claimedSeasonPromotions = raw.claimedSeasonPromotions.filter((id) => validLeagueIds.has(id));
+  } else if (isPreV4) {
+    for (let i = 0; i < leagueIndex; i++) {
+      if (LEAGUES[i]) claimedSeasonPromotions.push(LEAGUES[i].id);
+    }
+    if (raw.seasonCompleted && LEAGUES[LEAGUES.length - 1]) {
+      claimedSeasonPromotions.push(LEAGUES[LEAGUES.length - 1].id);
+    }
+  }
 
   const leagueEarned = sanitizeNumber(raw.leagueEarned, 0, 0);
   const totalEarned = sanitizeNumber(raw.totalEarned, 0, 0);
@@ -130,6 +147,7 @@ export function sanitizeState(raw) {
     lineup: createEmptyLineup(),
     discoveredSecrets: [],
     claimedCareerMilestones: {},
+    claimedSeasonPromotions,
     completedChallenges: Array.isArray(raw.completedChallenges)
       ? raw.completedChallenges.filter((id) => VALID_CHALLENGES.has(id))
       : [],

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#070c16" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="description" content="Presidente di Provincia v3.5 — Idle/clicker calcistico mobile-first 2.5D con 7 categorie, formazione 5 ruoli, 4 leggende segrete, sfide, stagioni e Polpetta." />
+  <meta name="description" content="Presidente di Provincia v4.0 Broadcast & Balance Overhaul — Idle/clicker calcistico mobile-first 2.5D con Gino il DS animato, 7 categorie, 8 sfide, 12 ricerche, 4 leggende segrete e Polpetta." />
   <title>Presidente di Provincia</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
@@ -38,8 +38,11 @@
         </div>
       </div>
 
-      <!-- FUMETTO COMPATTO DI GINO IL DS LEGATO ALL'AVATAR IN ALTO -->
-      <div class="gino-bubble hidden" id="gino-bubble" aria-live="polite"></div>
+      <!-- GINO IL DS A MEZZO BUSTO ANIMATO + FUMETTO ANCORATO IN BASSO A DESTRA -->
+      <div class="gino-stage-dock" id="gino-stage-dock" aria-live="polite">
+        <div class="gino-speech-bubble" id="gino-bubble"></div>
+        <div class="gino-bust-wrap" id="gino-bust-wrap"></div>
+      </div>
 
       <!-- TABELLONE DIRETTA TV IN ALTO DURANTE LA PARTITA 0'-90' -->
       <div class="tv-scoreboard hidden" id="tv-scoreboard" aria-live="polite">
@@ -125,7 +128,8 @@
     <!-- FASCIA SCURA INFERIORE PER HOME INDICATOR iOS -->
     <div class="ios-safe-bottom" aria-hidden="true"></div>
 
-    <!-- FRECCIA GUIDA ANIMATA TUTORIAL (POINTER-EVENTS: NONE) -->
+    <!-- SPOTLIGHT + FRECCIA GUIDA ANIMATA TUTORIAL (POINTER-EVENTS: NONE) -->
+    <div class="tutorial-spotlight hidden" id="tutorial-spotlight" aria-hidden="true"></div>
     <div class="tutorial-pointer hidden" id="tutorial-pointer" aria-hidden="true"></div>
 
     <!-- TOAST, MODALI E CUTSCENE LAMPO -->

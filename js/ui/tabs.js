@@ -31,6 +31,7 @@ import {
   getCurrentMatchRound,
 } from '../state.js';
 import {
+  RESEARCH_GROUPS,
   PERMANENT_RESEARCHES,
   getResearchLevel,
   getResearchCost,
@@ -222,6 +223,7 @@ export class TabsController {
       stats.seasonMult *
       stats.prestigeMult *
       stats.challengeMult *
+      (stats.marketingMult || 1) *
       stats.boostMult;
     const visible = getVisibleUpgrades(state);
 
@@ -266,9 +268,10 @@ export class TabsController {
 
         const nextKey = `${upg.id}:${ms.next}`;
         const alreadyClaimedToken = Boolean(state.claimedCareerMilestones?.[nextKey]);
+        const nextRewardTok = MILESTONE_TOKEN_REWARDS[ms.next] || 0;
         const nextTokHint =
-          !ms.allDone && !alreadyClaimedToken
-            ? ` (+${MILESTONE_TOKEN_REWARDS[ms.next] || 1}🪙)`
+          !ms.allDone && nextRewardTok > 0 && !alreadyClaimedToken
+            ? ` (+${nextRewardTok}🪙)`
             : '';
 
         const milestoneHtml = ms.allDone
@@ -468,10 +471,7 @@ export class TabsController {
                 (s) => s.player && canFuseBenchIntoStarter(p, s.player)
               );
               const sellVal = getBenchSellValue(p, state, stats);
-              const sellLbl =
-                sellVal.tokens > 0
-                  ? `Vendi +${formatMoney(sellVal.cash)} +${sellVal.tokens}🪙`
-                  : `Vendi +${formatMoney(sellVal.cash)}`;
+              const sellLbl = `Vendi +${formatMoney(sellVal.cash)}`;
 
               return `
                 <div class="player-row bench-row ${holoCls}" style="border-left:3px solid ${rar.color};">
@@ -509,7 +509,7 @@ export class TabsController {
 
     this.container.innerHTML = `
       <div class="section-label">
-        <span>Buste Scouting (×1,55ⁿ / Reddito)</span>
+        <span>Buste Scouting (×1,50ⁿ / Reddito)</span>
         <span>Forza Titolari: ⚡${formatNumber(stats.squadPower)}</span>
       </div>
       <div class="pack-grid">${packsHtml}</div>
@@ -525,13 +525,13 @@ export class TabsController {
 
       <div class="section-label" style="margin-top:8px;">
         <span>Leggende Segrete (${discovered.size}/${SECRET_PLAYERS.length})</span>
-        <span>Bacheca permanente</span>
+        <span>+8 🪙 alla 1ª scoperta</span>
       </div>
       <div class="secret-grid">${secretSlotsHtml}</div>
 
       <div class="section-label" style="margin-top:8px;">
         <span>Panchina (${benchPlayers.length})</span>
-        <span>Fondi ★ o Vendi (+🪙)</span>
+        <span>Fondi ★ o Vendi (+€)</span>
       </div>
       <div class="roster-list">${benchHtml}</div>
     `;
@@ -539,16 +539,27 @@ export class TabsController {
 
   _renderChallengesHtml(state) {
     const doneSet = new Set(state.completedChallenges || []);
+    const { challengePerkMult } = getResearchEffects(state);
+    const starters = getStarters(state).map((s) => s.player).filter(Boolean);
+    const epicStarterCount = starters.filter((p) => (RARITIES[p.rarity]?.rank || 1) >= 3).length;
+    const maxStarterStars = starters.reduce((mx, p) => Math.max(mx, p.stars || 1), 0);
+
     const cards = PRESIDENT_CHALLENGES.map((ch) => {
       const done = doneSet.has(ch.id);
-      let statusHtml = `<span class="upgrade-lvl" style="color:#fde047;">+${ch.tokenReward} 🪙 • +${ch.globalPct}%</span>`;
+      let statusHtml = `<span class="upgrade-lvl" style="color:#fde047;background:rgba(250,204,21,0.16);">+${ch.tokenReward} 🪙</span>`;
       if (done) {
-        statusHtml = `<span class="starter-tag">✓ COMPLETATA (+${ch.globalPct}%)</span>`;
+        statusHtml = `<span class="starter-tag">✓ COMPLETATA</span>`;
       } else if (ch.id === 'clean_sheet_3') {
         statusHtml = `<span class="upgrade-lvl" style="color:#93c5fd;">Serie ${state.cleanSheetStreak || 0}/3 • +${ch.tokenReward} 🪙</span>`;
+      } else if (ch.id === 'collector') {
+        statusHtml = `<span class="upgrade-lvl" style="color:#c084fc;">${epicStarterCount}/5 Epici+ • +${ch.tokenReward} 🪙</span>`;
+      } else if (ch.id === 'perfect_market') {
+        statusHtml = `<span class="upgrade-lvl" style="color:#fde047;">Max ${maxStarterStars}/5★ • +${ch.tokenReward} 🪙</span>`;
       } else if (ch.id === 'austerity' && state.boughtIncomeUpgradeThisRun) {
         statusHtml = `<span class="upgrade-lvl" style="color:#fca5a5;">Riprova dopo Prestige</span>`;
       }
+
+      const perkTxt = ch.perkLabel(challengePerkMult);
       return `
         <div class="challenge-card ${done ? 'done' : ''}">
           <div class="challenge-ico">${ch.icon}</div>
@@ -558,15 +569,25 @@ export class TabsController {
               ${statusHtml}
             </div>
             <div class="challenge-desc">${escapeHTML(ch.desc)}</div>
+            <div class="challenge-perk-row">
+              <span class="challenge-perk-pill ${done ? 'active' : ''}">
+                ${done ? '★ Attivo:' : 'Perk:'} ${escapeHTML(perkTxt)}
+              </span>
+            </div>
           </div>
         </div>
       `;
     }).join('');
 
+    const cabinetNote =
+      challengePerkMult > 1
+        ? `Bacheca ×${challengePerkMult.toFixed(2).replace('.', ',')}`
+        : 'Fonte principale 🪙';
+
     return `
       <div class="section-label" style="margin-top:8px;">
         <span>Sfide del Presidente (${doneSet.size}/${PRESIDENT_CHALLENGES.length})</span>
-        <span style="color:#86efac;">+${doneSet.size * 5}% globale</span>
+        <span style="color:#fde047;">${cabinetNote}</span>
       </div>
       <div class="challenge-list">${cards}</div>
     `;
@@ -617,18 +638,28 @@ export class TabsController {
       `
       : '';
 
+    const promoAlreadyClaimed = (state.claimedSeasonPromotions || []).includes(league.id);
+    const promoTokStr = promoAlreadyClaimed ? '' : ` + <strong>${league.promotionTokens} 🪙</strong>`;
+
     const goalDesc =
       isKnockoutBracket && stageIdx === 0
         ? `Vinci la <strong>Semifinale</strong> contro <strong>${escapeHTML(round.opponent)}</strong> per accedere alla Finale!`
         : nextLeague
-          ? `Vinci contro <strong>${escapeHTML(round.opponent)}</strong> per salire in <strong>${escapeHTML(nextLeague.name)}</strong> (moltiplicatore <strong>x${nextLeague.multiplier}</strong> + <strong>${league.promotionTokens} 🪙</strong>)!`
-          : `Vinci la <strong>Finale Galattica</strong> contro <strong>${escapeHTML(round.opponent)}</strong> (+<strong>${league.promotionTokens} 🪙</strong>) per sbloccare la Nuova Stagione ★!`;
+          ? `Vinci contro <strong>${escapeHTML(round.opponent)}</strong> per salire in <strong>${escapeHTML(nextLeague.name)}</strong> (moltiplicatore <strong>x${nextLeague.multiplier}</strong>${promoTokStr})!`
+          : `Vinci la <strong>Finale Galattica</strong> contro <strong>${escapeHTML(round.opponent)}</strong>${promoTokStr} per sbloccare la Nuova Stagione ★!`;
 
     const activePassives = [];
     if (stats.hasPorcotrio) activePassives.push('🔥 Istinto Killer (Porcotrio): +22% zona gol su TIRA!');
     if (stats.hasLoma) activePassives.push('⚡ Muro Invalicabile (Loma): +25% finestra PARA! & Rigori più lenti');
     if (stats.hasPscon) activePassives.push('🪨 Muro di Granito (Tumas Pscon): -1 attacco rivale + 1º gol subito annullato!');
     if (stats.hasVavelocino) activePassives.push('💨 Turbo a Centrocampo (Vavelocino): +25% possesso & cooldown 2,4s!');
+    if ((stats.research.matchPrecisionMult || 1) > 1) {
+      const pct = Math.round((stats.research.matchPrecisionMult - 1) * 100);
+      activePassives.push(`🦅 Occhio di Falco: +${pct}% ampiezza TIRA! e PARA!`);
+    }
+    if ((stats.challengePerks?.possessionPct || 0) > 0) {
+      activePassives.push(`⚡ Perk Sprint Finale: +${Math.round(stats.challengePerks.possessionPct)}% velocità Possesso!`);
+    }
     const passivesHtml =
       activePassives.length > 0
         ? `<div class="passive-banner">${activePassives.map((l) => `<span>${l}</span>`).join('')}</div>`
@@ -736,28 +767,38 @@ export class TabsController {
     const s = state.clubColors.secondary;
     const previewBg = `linear-gradient(90deg, ${p} 0%, ${p} 36%, ${s} 36%, ${s} 64%, ${p} 64%, ${p} 100%)`;
 
-    const researchHtml = PERMANENT_RESEARCHES.map((def) => {
-      const lvl = getResearchLevel(state, def.id);
-      const cost = getResearchCost(state, def);
-      const isMax = cost === null;
-      const canBuy = !isMax && (state.goldTokens || 0) >= cost;
-      return `
-        <div class="research-card">
-          <div class="upgrade-left">
-            <div class="upgrade-icon">${def.icon}</div>
-            <div class="upgrade-info">
-              <div class="upgrade-title-row">
-                <span class="upgrade-name">${escapeHTML(def.name)}</span>
-                <span class="upgrade-lvl">Lv.${lvl}/${def.maxLevel}</span>
+    const researchHtml = RESEARCH_GROUPS.map((grp) => {
+      const items = PERMANENT_RESEARCHES.filter((r) => r.category === grp.id)
+        .map((def) => {
+          const lvl = getResearchLevel(state, def.id);
+          const cost = getResearchCost(state, def);
+          const isMax = cost === null;
+          const canBuy = !isMax && (state.goldTokens || 0) >= cost;
+          return `
+            <div class="research-card">
+              <div class="upgrade-left">
+                <div class="upgrade-icon">${def.icon}</div>
+                <div class="upgrade-info">
+                  <div class="upgrade-title-row">
+                    <span class="upgrade-name">${escapeHTML(def.name)}</span>
+                    <span class="upgrade-lvl">Lv.${lvl}/${def.maxLevel}</span>
+                  </div>
+                  <div class="upgrade-desc">${escapeHTML(def.desc)}</div>
+                  <div class="upgrade-effect" style="color:#fde047;">${escapeHTML(def.effectLabel(lvl))}</div>
+                </div>
               </div>
-              <div class="upgrade-desc">${escapeHTML(def.desc)}</div>
-              <div class="upgrade-effect" style="color:#fde047;">${escapeHTML(def.effectLabel(lvl))}</div>
+              <button type="button" class="token-buy-btn" data-research-id="${def.id}" ${canBuy ? '' : 'disabled'}>
+                ${isMax ? 'MAX' : `🪙 ${cost}`}
+              </button>
             </div>
-          </div>
-          <button type="button" class="token-buy-btn" data-research-id="${def.id}" ${canBuy ? '' : 'disabled'}>
-            ${isMax ? 'MAX' : `🪙 ${cost}`}
-          </button>
+          `;
+        })
+        .join('');
+      return `
+        <div class="research-group-title" style="border-left-color:${grp.accent};color:${grp.accent};">
+          ${grp.label}
         </div>
+        ${items}
       `;
     }).join('');
 
@@ -835,9 +876,9 @@ export class TabsController {
         </button>
       </div>
 
-      <!-- RICERCHE PERMANENTI (GETTONI D'ORO) -->
+      <!-- RICERCHE PERMANENTI (12 IN 3 GRUPPI) -->
       <div class="section-label">
-        <span style="display:inline-flex;align-items:center;gap:5px;">${iconSvg('flask', 'svg-ico sm')} Ricerche Permanenti</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;">${iconSvg('flask', 'svg-ico sm')} Ricerche Permanenti (12)</span>
         <span style="color:#fde047;">🪙 ${formatNumber(state.goldTokens || 0)} Gettoni</span>
       </div>
       ${researchHtml}

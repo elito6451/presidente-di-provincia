@@ -39,11 +39,17 @@ import {
 } from './storage.js';
 import { audio } from './audio.js';
 import { openPack } from './gacha.js';
-import { evaluateMatchChallenges, buildWhatsAppCard } from './challenges.js';
+import {
+  evaluateMatchChallenges,
+  evaluateRosterChallenges,
+  buildWhatsAppCard,
+} from './challenges.js';
 import { SpareggioController } from './match.js';
 import { FlashEventManager } from './events.js';
 import {
+  TUTORIAL_DONE_STEP,
   getGinoAvatarSvg,
+  getGinoBustSvg,
   TUTORIAL_STEPS,
   evaluateTutorialProgress,
   getTutorialPointerTarget,
@@ -70,15 +76,74 @@ let stadium = null;
 let tabs = null;
 let ginoTipOpen = false;
 let tutorialBubbleDismissedStep = -1;
+let ginoTypeTimer = null;
+let ginoTypeFullText = '';
+let ginoTypeDone = true;
+let lastSpotlightTargetId = null;
+let lastGinoRenderKey = '';
 
 const elAppShell = document.getElementById('app-shell');
 const elGinoTopBtn = document.getElementById('btn-gino-top');
 const elGinoTopAvatar = document.getElementById('gino-top-avatar');
 const elGinoDot = document.getElementById('gino-dot');
+const elGinoDock = document.getElementById('gino-stage-dock');
 const elGinoBubble = document.getElementById('gino-bubble');
+const elGinoBustWrap = document.getElementById('gino-bust-wrap');
+const elTutorialSpotlight = document.getElementById('tutorial-spotlight');
 const elTutorialPointer = document.getElementById('tutorial-pointer');
 
 const POINTER_ARROW_SVG = `<svg class="tutorial-pointer-arrow" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21 4.5 12h4.7V3h5.6v9h4.7L12 21Z"/></svg>`;
+
+function stopGinoTypewriter(completeNow = false) {
+  if (ginoTypeTimer) {
+    clearInterval(ginoTypeTimer);
+    ginoTypeTimer = null;
+  }
+  ginoTypeDone = true;
+  elGinoBustWrap?.classList.remove('talking');
+  if (completeNow) {
+    const textEl = document.getElementById('gino-type-text');
+    if (textEl) textEl.textContent = ginoTypeFullText;
+  }
+}
+
+function startGinoTypewriter(fullText) {
+  stopGinoTypewriter(false);
+  ginoTypeFullText = String(fullText || '');
+  const textEl = document.getElementById('gino-type-text');
+  if (!textEl) return;
+
+  let idx = 0;
+  ginoTypeDone = false;
+  textEl.textContent = '';
+  elGinoBustWrap?.classList.add('talking');
+
+  ginoTypeTimer = setInterval(() => {
+    idx += 2;
+    if (idx >= ginoTypeFullText.length) {
+      textEl.textContent = ginoTypeFullText;
+      stopGinoTypewriter(false);
+    } else {
+      textEl.textContent = ginoTypeFullText.slice(0, idx);
+    }
+  }, 24);
+}
+
+function closeGinoDock() {
+  stopGinoTypewriter(false);
+  elGinoDock?.classList.remove('visible');
+  lastGinoRenderKey = '';
+}
+
+function checkRosterChallengesAndNotify() {
+  const newly = evaluateRosterChallenges(state);
+  if (newly.length > 0) {
+    for (const ch of newly) {
+      modals.toast(`🏅 Sfida "${ch.name}" completata! +${ch.tokenReward} 🪙 & ${ch.perkLabel(1)}!`, 3200);
+    }
+    saveGame(state);
+  }
+}
 
 function getClubInfo() {
   return {
@@ -96,32 +161,61 @@ function syncSquadOnPitch() {
 
 function updateTutorialPointer() {
   if (!elTutorialPointer || !elAppShell) return;
-  const inTutorial = (state.tutorialStep ?? 4) < 4;
-  const bubbleVisible = elGinoBubble && !elGinoBubble.classList.contains('hidden');
+  const inTutorial = (state.tutorialStep ?? TUTORIAL_DONE_STEP) < TUTORIAL_DONE_STEP;
+  const dockVisible = elGinoDock && elGinoDock.classList.contains('visible');
 
-  // Mostra la freccia animata SOLO durante il tutorial dopo aver chiuso il fumetto (e fuori partita)
-  if (!inTutorial || bubbleVisible || matchCtrl.active || !tabs) {
+  // Mostra Spotlight + Freccia SOLO durante il tutorial dopo aver chiuso Gino (e mai in partita!)
+  if (!inTutorial || dockVisible || matchCtrl.active || !tabs) {
     elTutorialPointer.classList.add('hidden');
+    elTutorialSpotlight?.classList.add('hidden');
     return;
   }
 
   const target = getTutorialPointerTarget(state, tabs.activeTab);
   if (!target || !target.el) {
     elTutorialPointer.classList.add('hidden');
+    elTutorialSpotlight?.classList.add('hidden');
     return;
+  }
+
+  // Auto-scroll fluido quando lo Spotlight punta un elemento dentro una tab scorrevole (es. Formazione / Checklist / Ricerche)
+  if (target.inScroll && lastSpotlightTargetId !== target.id) {
+    lastSpotlightTargetId = target.id;
+    try {
+      target.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch {
+      // ignore
+    }
+  } else if (!target.inScroll) {
+    lastSpotlightTargetId = target.id;
   }
 
   const shellRect = elAppShell.getBoundingClientRect();
   const rect = target.el.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) {
     elTutorialPointer.classList.add('hidden');
+    elTutorialSpotlight?.classList.add('hidden');
     return;
   }
 
-  // Nascondi se l'elemento target è fuori dalla viewport visibile dello scroll
   if (rect.bottom < shellRect.top + 20 || rect.top > shellRect.bottom - 10) {
     elTutorialPointer.classList.add('hidden');
+    elTutorialSpotlight?.classList.add('hidden');
     return;
+  }
+
+  // Spotlight morbido non bloccante sull'elemento bersaglio
+  if (elTutorialSpotlight) {
+    const pad = 4;
+    const sLeft = Math.max(2, rect.left - shellRect.left - pad);
+    const sTop = Math.max(2, rect.top - shellRect.top - pad);
+    const sWidth = Math.min(shellRect.width - sLeft - 2, rect.width + pad * 2);
+    const sHeight = Math.min(shellRect.height - sTop - 2, rect.height + pad * 2);
+    elTutorialSpotlight.style.left = `${sLeft.toFixed(1)}px`;
+    elTutorialSpotlight.style.top = `${sTop.toFixed(1)}px`;
+    elTutorialSpotlight.style.width = `${sWidth.toFixed(1)}px`;
+    elTutorialSpotlight.style.height = `${sHeight.toFixed(1)}px`;
+    elTutorialSpotlight.classList.remove('hidden');
   }
 
   let relX = rect.left + rect.width * 0.5 - shellRect.left;
@@ -129,8 +223,7 @@ function updateTutorialPointer() {
     ? rect.top + rect.height * 0.54 - shellRect.top
     : rect.top - shellRect.top - 4;
 
-  // Clamp orizzontale comodo per non uscire mai dai bordi su 390px
-  relX = Math.max(54, Math.min(shellRect.width - 54, relX));
+  relX = Math.max(58, Math.min(shellRect.width - 58, relX));
 
   let below = false;
   if (relY < 58) {
@@ -157,109 +250,161 @@ function renderGinoAssistant() {
     elGinoTopAvatar.innerHTML = getGinoAvatarSvg(state.clubColors.primary);
   }
 
+  // Durante le partite 0'-90' e rigori: Gino esce sempre di lato lasciando campo e TIRA! liberi!
   if (matchCtrl.active) {
-    elGinoBubble?.classList.add('hidden');
+    closeGinoDock();
     elTutorialPointer?.classList.add('hidden');
+    elTutorialSpotlight?.classList.add('hidden');
     return;
   }
 
-  const inTutorial = (state.tutorialStep ?? 4) < 4;
+  const inTutorial = (state.tutorialStep ?? TUTORIAL_DONE_STEP) < TUTORIAL_DONE_STEP;
   if (inTutorial) {
     elGinoDot?.classList.remove('hidden');
-    const shouldShowBubble = tutorialBubbleDismissedStep !== state.tutorialStep;
+    const shouldShowDock = tutorialBubbleDismissedStep !== state.tutorialStep;
 
-    if (shouldShowBubble) {
+    if (shouldShowDock) {
       const stepDef = TUTORIAL_STEPS[state.tutorialStep] || TUTORIAL_STEPS[0];
-      elGinoBubble.innerHTML = `
-        <div class="gino-bubble-head">
-          <span class="gino-bubble-mini">${getGinoAvatarSvg(state.clubColors.primary)}</span>
+      const renderKey = `tut:${state.tutorialStep}:${state.clubColors.primary}:${state.clubColors.secondary}`;
+
+      if (lastGinoRenderKey !== renderKey || !elGinoDock.classList.contains('visible')) {
+        lastGinoRenderKey = renderKey;
+        elGinoBustWrap.innerHTML = getGinoBustSvg(
+          state.clubColors.primary,
+          state.clubColors.secondary,
+          stepDef.expression || 'happy'
+        );
+        const primaryBtnHtml = stepDef.manualAdvance
+          ? `<button type="button" class="mini-btn primary" id="btn-gino-next">${escapeHTML(stepDef.manualBtnLabel || 'Avanti →')}</button>
+             <button type="button" class="mini-btn" id="btn-gino-ok">Mostrami</button>`
+          : `<button type="button" class="mini-btn primary" id="btn-gino-ok">Capito!</button>`;
+
+        elGinoBubble.innerHTML = `
           <div class="gino-dock-title">${escapeHTML(stepDef.title)}</div>
-        </div>
-        <div class="gino-dock-text">${escapeHTML(stepDef.text)}</div>
-        <div class="gino-dock-actions">
-          <button type="button" class="mini-btn primary" id="btn-gino-ok">Capito!</button>
-          <button type="button" class="mini-btn" id="btn-gino-skip">Salta Tutorial</button>
-        </div>
-      `;
-      elGinoBubble.classList.remove('hidden');
+          <div class="gino-dock-text" id="gino-type-text"></div>
+          <div class="gino-dock-actions">
+            ${primaryBtnHtml}
+            <button type="button" class="mini-btn" id="btn-gino-skip">Salta</button>
+          </div>
+        `;
+        elGinoDock.classList.add('visible');
+        startGinoTypewriter(stepDef.text);
 
-      const dismissBubble = () => {
-        tutorialBubbleDismissedStep = state.tutorialStep;
-        elGinoBubble.classList.add('hidden');
-        updateTutorialPointer();
-      };
+        const dismissDock = () => {
+          tutorialBubbleDismissedStep = state.tutorialStep;
+          closeGinoDock();
+          if (stepDef.targetTab && tabs && tabs.activeTab !== stepDef.targetTab) {
+            tabs.switchTo(stepDef.targetTab);
+          }
+          updateTutorialPointer();
+        };
 
-      elGinoBubble.onclick = (e) => {
-        if (e.target.closest('#btn-gino-skip')) return;
-        dismissBubble();
-      };
-      elGinoBubble.querySelector('#btn-gino-ok')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        dismissBubble();
-      });
-      elGinoBubble.querySelector('#btn-gino-skip')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        state.tutorialStep = 4;
-        tutorialBubbleDismissedStep = 4;
-        saveGame(state);
-        renderGinoAssistant();
-      });
+        const advanceStep = () => {
+          stopGinoTypewriter(false);
+          state.tutorialStep = Math.min(TUTORIAL_DONE_STEP, state.tutorialStep + 1);
+          tutorialBubbleDismissedStep = -1;
+          lastSpotlightTargetId = null;
+          saveGame(state);
+          const nextDef = TUTORIAL_STEPS[state.tutorialStep];
+          if (nextDef?.targetTab && tabs && tabs.activeTab !== nextDef.targetTab) {
+            tabs.switchTo(nextDef.targetTab);
+          }
+          renderGinoAssistant();
+        };
+
+        elGinoBubble.onclick = (e) => {
+          if (e.target.closest('button')) return;
+          if (!ginoTypeDone) {
+            stopGinoTypewriter(true);
+            return;
+          }
+          dismissDock();
+        };
+        elGinoBubble.querySelector('#btn-gino-ok')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          dismissDock();
+        });
+        elGinoBubble.querySelector('#btn-gino-next')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          advanceStep();
+        });
+        elGinoBubble.querySelector('#btn-gino-skip')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          state.tutorialStep = TUTORIAL_DONE_STEP;
+          tutorialBubbleDismissedStep = TUTORIAL_DONE_STEP;
+          saveGame(state);
+          closeGinoDock();
+          renderGinoAssistant();
+        });
+      }
     } else {
-      elGinoBubble.classList.add('hidden');
+      closeGinoDock();
     }
 
     updateTutorialPointer();
     return;
   }
 
-  // Post-tutorial: avatar in barra alta + pallino luminoso quando Gino ha un consiglio mirato
+  // Post-tutorial: avatar in barra alta + pallino luminoso; al tap entra il mezzo busto animato di Gino!
   const tip = getGinoDynamicTip(state);
   elGinoDot?.classList.toggle('hidden', !tip.urgent);
   elTutorialPointer?.classList.add('hidden');
+  elTutorialSpotlight?.classList.add('hidden');
 
   if (ginoTipOpen) {
-    elGinoBubble.innerHTML = `
-      <div class="gino-bubble-head">
-        <span class="gino-bubble-mini">${getGinoAvatarSvg(state.clubColors.primary)}</span>
+    const renderKey = `tip:${tip.title}:${tip.text}:${state.clubColors.primary}:${state.clubColors.secondary}`;
+    if (lastGinoRenderKey !== renderKey || !elGinoDock.classList.contains('visible')) {
+      lastGinoRenderKey = renderKey;
+      elGinoBustWrap.innerHTML = getGinoBustSvg(
+        state.clubColors.primary,
+        state.clubColors.secondary,
+        tip.expression || 'happy'
+      );
+      elGinoBubble.innerHTML = `
         <div class="gino-dock-title">Gino il DS — ${escapeHTML(tip.title)}</div>
-      </div>
-      <div class="gino-dock-text">${escapeHTML(tip.text)}</div>
-      <div class="gino-dock-actions">
-        ${tip.ctaTab ? `<button type="button" class="mini-btn primary" id="btn-gino-cta" data-goto="${tip.ctaTab}">${escapeHTML(tip.ctaLabel)}</button>` : ''}
-        <button type="button" class="mini-btn" id="btn-gino-close">Capito!</button>
-      </div>
-    `;
-    elGinoBubble.classList.remove('hidden');
+        <div class="gino-dock-text" id="gino-type-text"></div>
+        <div class="gino-dock-actions">
+          ${tip.ctaTab ? `<button type="button" class="mini-btn primary" id="btn-gino-cta" data-goto="${tip.ctaTab}">${escapeHTML(tip.ctaLabel)}</button>` : ''}
+          <button type="button" class="mini-btn" id="btn-gino-close">Capito!</button>
+        </div>
+      `;
+      elGinoDock.classList.add('visible');
+      startGinoTypewriter(tip.text);
 
-    const closeTip = () => {
-      ginoTipOpen = false;
-      elGinoBubble.classList.add('hidden');
-    };
+      const closeTip = () => {
+        ginoTipOpen = false;
+        closeGinoDock();
+      };
 
-    elGinoBubble.onclick = (e) => {
-      if (e.target.closest('#btn-gino-cta')) return;
-      closeTip();
-    };
-    elGinoBubble.querySelector('#btn-gino-cta')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      ginoTipOpen = false;
-      tabs.switchTo(e.currentTarget.dataset.goto);
-      renderGinoAssistant();
-    });
-    elGinoBubble.querySelector('#btn-gino-close')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeTip();
-    });
+      elGinoBubble.onclick = (e) => {
+        if (e.target.closest('button')) return;
+        if (!ginoTypeDone) {
+          stopGinoTypewriter(true);
+          return;
+        }
+        closeTip();
+      };
+      elGinoBubble.querySelector('#btn-gino-cta')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ginoTipOpen = false;
+        closeGinoDock();
+        tabs.switchTo(e.currentTarget.dataset.goto);
+        renderGinoAssistant();
+      });
+      elGinoBubble.querySelector('#btn-gino-close')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeTip();
+      });
+    }
   } else {
-    elGinoBubble.classList.add('hidden');
+    closeGinoDock();
   }
 }
 
 elGinoTopBtn?.addEventListener('click', (ev) => {
   ev.stopPropagation();
   audio.unlock();
-  if ((state.tutorialStep ?? 4) < 4) {
-    // Riapri o richiudi il fumetto del passo tutorial corrente
+  if ((state.tutorialStep ?? TUTORIAL_DONE_STEP) < TUTORIAL_DONE_STEP) {
     if (tutorialBubbleDismissedStep === state.tutorialStep) {
       tutorialBubbleDismissedStep = -1;
     } else {
@@ -285,9 +430,11 @@ function finalizeMatchOutcome(outcome) {
   audio.fadeMusicForMatch(false);
   audio.playWhistle('fulltime');
 
-  // Valuta le 4 Sfide del Presidente
+  // Valuta le 8 Sfide del Presidente
   const newChallenges = evaluateMatchChallenges(state, {
     won: outcome.won,
+    byPenalties: Boolean(outcome.byPenalties),
+    finalCup: Boolean(outcome.finalCup),
     myGoals: outcome.myGoals,
     oppGoals: outcome.oppGoals,
     leagueIndex: outcome.leagueIndex ?? state.leagueIndex,
@@ -295,7 +442,7 @@ function finalizeMatchOutcome(outcome) {
   });
   outcome.newChallenges = newChallenges;
   for (const ch of newChallenges) {
-    modals.toast(`🏅 Sfida "${ch.name}" completata! +${ch.tokenReward} 🪙 & +${ch.globalPct}% globale!`, 3200);
+    modals.toast(`🏅 Sfida "${ch.name}" completata! +${ch.tokenReward} 🪙 & ${ch.perkLabel(1)}!`, 3200);
   }
 
   if (outcome.won) {
@@ -545,7 +692,12 @@ tabs = new TabsController({
       stats,
     });
     if (!res.ok) return;
+    checkRosterChallengesAndNotify();
     saveGame(state);
+
+    if (res.firstSecretTokens > 0) {
+      modals.toast(`🌟 Nuova Leggenda Segreta! +${res.firstSecretTokens} 🪙 Gettoni d'Oro!`, 3400);
+    }
 
     // Walkout Epico dedicato per tutte e 4 le Leggende Segrete!
     if (res.player.rarity === 'segreto') {
@@ -580,6 +732,7 @@ tabs = new TabsController({
     audio.unlock();
     autoAssignLineup(state);
     audio.playBuy();
+    checkRosterChallengesAndNotify();
     modals.toast('⚡ Migliori 5 titolari schierati per ruolo!');
     saveGame(state);
     refreshFullUI();
@@ -600,6 +753,7 @@ tabs = new TabsController({
       onPick: (playerId) => {
         if (assignSlotPlayer(state, slotKey, playerId)) {
           audio.playBuy();
+          checkRosterChallengesAndNotify();
           modals.toast(`Titolare aggiornato nello slot ${slotDef.label}!`);
           saveGame(state);
           refreshFullUI();
@@ -610,6 +764,7 @@ tabs = new TabsController({
         const res = fuseBenchIntoStarter(state, benchId, slotKey);
         if (res.ok) {
           audio.playPackOpen('epico');
+          checkRosterChallengesAndNotify();
           modals.toast(`🔥 ${res.starter.name} allenato! Sale a ${res.starter.stars}★!`);
           saveGame(state);
           refreshFullUI();
@@ -641,6 +796,7 @@ tabs = new TabsController({
 
     if (assignSlotPlayer(state, targetSlot.key, playerId)) {
       audio.playBuy();
+      checkRosterChallengesAndNotify();
       modals.toast(`⚽ ${player.shortName || player.name} schierato titolare (${targetSlot.label})!`);
       saveGame(state);
       refreshFullUI();
@@ -652,6 +808,7 @@ tabs = new TabsController({
     const res = fuseBenchIntoStarter(state, benchId, slotKey);
     if (!res.ok) return;
     audio.playPackOpen('epico');
+    checkRosterChallengesAndNotify();
     modals.toast(`🔥 Fusione riuscita! ${res.starter.name} sale a ${res.starter.stars}★!`);
     saveGame(state);
     refreshFullUI();
@@ -734,6 +891,7 @@ tabs = new TabsController({
     audio.unlock();
     if (!matchCtrl.start(state)) return;
     ginoTipOpen = false;
+    closeGinoDock();
     audio.playWhistle('short');
     audio.fadeMusicForMatch(true);
     audio.startStadiumAmbience();
@@ -804,8 +962,11 @@ tabs = new TabsController({
         Object.assign(state, imported);
         audio.setMusicEnabled(state.musicEnabled);
         audio.setSfxEnabled(state.sfxEnabled);
+        tutorialBubbleDismissedStep = -1;
+        lastSpotlightTargetId = null;
+        checkRosterChallengesAndNotify();
         saveGame(state);
-        modals.toast('Salvataggio importato (compatibile v1–v3)!');
+        modals.toast('Salvataggio importato (compatibile v1–v4)!');
         refreshFullUI();
         return true;
       } catch (err) {
@@ -882,7 +1043,8 @@ document.getElementById('tab-content')?.addEventListener(
   { passive: true }
 );
 
-// 5. Render iniziale & modale guadagni offline
+// 5. Controllo retroattivo Sfide rosa (v3.5 -> v4.0), render iniziale & modale guadagni offline
+checkRosterChallengesAndNotify();
 refreshFullUI();
 if (offline && offline.amount > 0) {
   modals.showOfflineEarnings(offline, {
@@ -996,6 +1158,7 @@ function tick(now) {
       audio.playFlashEvent(false);
       modals.showDilemmaModal(spawned.dilemma, {
         clubPrimary: state.clubColors.primary,
+        clubSecondary: state.clubColors.secondary,
         onChoice: (choice) => {
           const opt = choice === 'A' ? spawned.dilemma.optionA : spawned.dilemma.optionB;
           const msg = opt.apply(state, computeStats(state));

@@ -8,6 +8,7 @@ import {
   LAST_NAMES,
   MAX_PLAYER_STARS,
   SECRET_PLAYERS,
+  SECRET_FIRST_DISCOVERY_TOKENS,
 } from './config.js';
 import { getResearchEffects } from './research.js';
 
@@ -145,18 +146,17 @@ function pickSecretCandidate(state) {
   return pickRandom(SECRET_PLAYERS);
 }
 
-// Calcola valore di vendita di un giocatore in panchina (+1 🪙 per Epici, Leggende e Segreti!)
+// Calcola valore di vendita di un giocatore in panchina (v4.0: solo cassa, scarsità reale Gettoni!)
 export function getBenchSellValue(player, state, stats) {
   const rar = RARITIES[player.rarity] || RARITIES.comune;
   const stars = player.stars || 1;
-  const mults = { comune: 6, raro: 16, epico: 38, leggenda: 80, segreto: 140 };
-  const baseFloor = { comune: 60, raro: 350, epico: 2800, leggenda: 25000, segreto: 65000 };
+  const mults = { comune: 7, raro: 18, epico: 45, leggenda: 95, segreto: 160 };
+  const baseFloor = { comune: 75, raro: 420, epico: 3800, leggenda: 35000, segreto: 90000 };
   const baseIncome = Math.max(stats?.baseIncomeNoTempBoosts || 0, state?.runPeakBaseIncome || 0);
   const cash = Math.floor(
-    Math.max(baseFloor[rar.id] || 60, baseIncome * (mults[rar.id] || 6)) * (0.7 + stars * 0.3)
+    Math.max(baseFloor[rar.id] || 75, baseIncome * (mults[rar.id] || 7)) * (0.7 + stars * 0.3)
   );
-  const tokens = rar.rank >= 3 ? 1 : 0; // +1 🪙 per Epici, Leggende e Segreti
-  return { cash, tokens };
+  return { cash, tokens: 0 };
 }
 
 // Regola anti-exploit fusione panchina -> titolare: stesso ruolo, < 5★, rarità >= titolare (o stesso segreto)
@@ -198,6 +198,7 @@ export function openPack(state, packId, { getPackCostFn, stats, autoFillEmptySlo
 
   let pulled = null;
   let existing = null;
+  let firstSecretTokens = 0;
   const { scoutLuckMult, secretLuckMult } = getResearchEffects(state);
 
   // 1. Tiro Easter Egg Segreto (0.05% / 0.15% / 0.50% * secretLuckMult)
@@ -209,6 +210,8 @@ export function openPack(state, packId, { getPackCostFn, stats, autoFillEmptySlo
     if (!state.discoveredSecrets) state.discoveredSecrets = [];
     if (!state.discoveredSecrets.includes(secretTpl.secretId)) {
       state.discoveredSecrets.push(secretTpl.secretId);
+      firstSecretTokens = SECRET_FIRST_DISCOVERY_TOKENS;
+      state.goldTokens = (state.goldTokens || 0) + firstSecretTokens;
     }
   } else {
     // 2. Tiro procedurale normale (anti-duplicato soprannome!)
@@ -267,6 +270,7 @@ export function openPack(state, packId, { getPackCostFn, stats, autoFillEmptySlo
     player: resultPlayer,
     outcome,
     refundAmount,
+    firstSecretTokens,
   };
 }
 

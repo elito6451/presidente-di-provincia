@@ -7,7 +7,7 @@ import {
 } from '../gacha.js';
 import { audio } from '../audio.js';
 import { iconSvg } from './icons.js';
-import { getGinoAvatarSvg } from '../assistant.js';
+import { getGinoBustSvg } from '../assistant.js';
 
 export class ModalManager {
   constructor() {
@@ -382,10 +382,12 @@ export class ModalManager {
     document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
   }
 
-  showDilemmaModal(dilemma, { clubPrimary, onChoice, onDismiss }) {
+  showDilemmaModal(dilemma, { clubPrimary, clubSecondary = '#f8fafc', onChoice, onDismiss }) {
     this._open(`
       <div style="display:flex;align-items:center;gap:10px;text-align:left;">
-        <div style="width:48px;height:48px;flex-shrink:0;">${getGinoAvatarSvg(clubPrimary)}</div>
+        <div style="width:62px;height:68px;flex-shrink:0;overflow:hidden;border-radius:12px;background:rgba(15,23,42,0.75);border:1.5px solid #fbbf24;">
+          ${getGinoBustSvg(clubPrimary, clubSecondary, 'serious')}
+        </div>
         <div>
           <div style="font-size:11px;font-weight:900;color:#fbbf24;text-transform:uppercase;">Gino il DS — Dilemma Lampo</div>
           <h2 class="modal-title" style="font-size:16px;margin-top:2px;">${escapeHTML(dilemma.title)}</h2>

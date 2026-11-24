@@ -1,7 +1,7 @@
-// Configurazione centrale v3.5 ("Endgame & Bilanciamento") di "Presidente di Provincia"
+// Configurazione centrale v4.0 ("Broadcast & Balance Overhaul") di "Presidente di Provincia"
 
 export const SAVE_KEY = 'presidente_provincia_save_v1';
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const AUTO_SAVE_INTERVAL_MS = 5000;
 export const OFFLINE_MIN_SECONDS = 15;
 export const OFFLINE_BASE_CAP_HOURS = 2; // espandibile fino a 12h con Ritiro H24
@@ -11,19 +11,20 @@ export const POLPETTA_BOOST_DURATION_MS = 10 * 1000;
 export const POLPETTA_COOLDOWN_MS = 45 * 1000;
 export const DEMO_AD_SECONDS = 5;
 export const MAX_PLAYER_STARS = 5;
-export const PACK_COST_GROWTH = 1.55;    // v3.5: curva ripida + floor su peakBaseIncomePerSec
-export const UPGRADE_COST_GROWTH = 1.18; // v3.5: anti-vittoria senza Prestige
+export const PACK_COST_GROWTH = 1.50;    // v4.0: crescita 1,50^n + floor su peakBaseIncomePerSec
+export const UPGRADE_COST_GROWTH = 1.18; // crescita 1,18^n anti-vittoria senza Prestige
 export const BASE_MATCH_DURATION_SEC = 28;
 export const ATTACK_COOLDOWN_SEC = 3.2;
 
 export const PRESTIGE_UNLOCK_RUN_CASH = 100000;
+export const PRESTIGE_SHARES_EXPONENT = 0.24; // v4.0: stop esplosione (+47K), curva controllata
 export const SEASON_BONUS_TOKENS = 25;
+export const SECRET_FIRST_DISCOVERY_TOKENS = 8;
 export const MILESTONE_LEVELS = [10, 25, 50, 100];
+// v4.0: Gettoni d'Oro solo alle grandi Milestone di carriera (Lv.50 e Lv.100); Lv.10/25 danno ×2
 export const MILESTONE_TOKEN_REWARDS = {
-  10: 1,
-  25: 2,
-  50: 4,
-  100: 6,
+  50: 3,
+  100: 5,
 };
 
 // 5 slot di ruolo fissi per la formazione titolare (1 POR, 1 DIF, 1 CEN, 2 ATT)
@@ -106,7 +107,7 @@ export const LEAGUES = [
     unlockCash: 1500,
     minSquadPower: 12,
     minInfraLevels: 6,
-    promotionTokens: 5,
+    promotionTokens: 4,
     matchTitle: 'Spareggio Promozione',
     matchOpponent: 'Real Borgata',
     trophyId: 'coppa_terza',
@@ -132,8 +133,8 @@ export const LEAGUES = [
     multiplier: 2,
     unlockCash: 35000,
     minSquadPower: 55,
-    minInfraLevels: 18,
-    promotionTokens: 8,
+    minInfraLevels: 22,
+    promotionTokens: 6,
     matchTitle: 'Playoff Serie C',
     matchOpponent: 'Atletico Bar Sport',
     trophyId: 'coppa_promozione',
@@ -157,10 +158,10 @@ export const LEAGUES = [
     badgeColor: '#0369a1',
     accent: '#38bdf8',
     multiplier: 4,
-    unlockCash: 35000000, // €35M
+    unlockCash: 45000000, // €45M
     minSquadPower: 170,
-    minInfraLevels: 42,
-    promotionTokens: 12,
+    minInfraLevels: 75,
+    promotionTokens: 10,
     matchTitle: 'Spareggio Serie A',
     matchOpponent: 'FC Cemento Armato',
     trophyId: 'coppa_seriec',
@@ -184,10 +185,10 @@ export const LEAGUES = [
     badgeColor: '#7e22ce',
     accent: '#c084fc',
     multiplier: 8,
-    unlockCash: 85000000000, // €85B
+    unlockCash: 220000000000, // €220B
     minSquadPower: 440,
-    minInfraLevels: 74,
-    promotionTokens: 18,
+    minInfraLevels: 155,
+    promotionTokens: 14,
     matchTitle: 'Playoff Europeo',
     matchOpponent: 'Vecchia Signora FC',
     trophyId: 'scudetto_a',
@@ -217,10 +218,10 @@ export const LEAGUES = [
     badgeColor: '#1d4ed8',
     accent: '#60a5fa',
     multiplier: 16,
-    unlockCash: 250000000000000, // €250T
+    unlockCash: 1500000000000000, // €1,5Qa
     minSquadPower: 850,
-    minInfraLevels: 108,
-    promotionTokens: 28,
+    minInfraLevels: 245,
+    promotionTokens: 20,
     matchTitle: 'Coppa Europea',
     matchOpponent: 'Real Galacticos',
     trophyId: 'coppa_europa',
@@ -250,10 +251,10 @@ export const LEAGUES = [
     badgeColor: '#b45309',
     accent: '#fbbf24',
     multiplier: 32,
-    unlockCash: 1.5e18, // €1,5Qi
+    unlockCash: 1.8e18, // €1,8Qi
     minSquadPower: 1250,
-    minInfraLevels: 140,
-    promotionTokens: 40,
+    minInfraLevels: 330,
+    promotionTokens: 28,
     matchTitle: 'Mondiale per Club',
     matchOpponent: 'Intercontinental FC',
     trophyId: 'coppa_mondiale',
@@ -283,10 +284,10 @@ export const LEAGUES = [
     badgeColor: '#9333ea',
     accent: '#f472b6',
     multiplier: 64,
-    unlockCash: 2.5e22, // €25Sx
+    unlockCash: 1.8e20, // €180Qi (calibrata su Prestige 0,24)
     minSquadPower: 1700,
-    minInfraLevels: 172,
-    promotionTokens: 60,
+    minInfraLevels: 420,
+    promotionTokens: 40,
     matchTitle: 'Superlega Galattica',
     matchOpponent: 'Cosmo Real FC',
     trophyId: 'coppa_superlega',
@@ -407,13 +408,13 @@ export const UPGRADES = [
     id: 'store_magliette',
     name: 'Store Magliette',
     icon: '👕',
-    desc: 'Merchandising ufficiale e cartelloni LED store.',
-    baseCost: 1800000,
-    tapAdd: 850,
-    incomeAdd: 14000,
+    desc: 'Merchandising ufficiale e boutique stadio illuminata.',
+    baseCost: 2200000,
+    tapAdd: 650,
+    incomeAdd: 9500,
     unlockLeague: 2,
-    unlockRunCash: 700000,
-    unlockText: 'Sblocca: Serie C & €700K',
+    unlockRunCash: 800000,
+    unlockText: 'Sblocca: Serie C & €800K',
     visualBuilding: 'store',
   },
   {
@@ -421,21 +422,21 @@ export const UPGRADES = [
     name: 'Diritti TV',
     icon: '📺',
     desc: 'Diretta nazionale con moviola e telecamere bordo campo.',
-    baseCost: 16000000,
+    baseCost: 28000000,
     tapAdd: 0,
-    incomeAdd: 110000,
+    incomeAdd: 60000,
     unlockLeague: 2,
-    unlockRunCash: 6000000,
-    unlockText: 'Sblocca: Serie C & €6M',
+    unlockRunCash: 8000000,
+    unlockText: 'Sblocca: Serie C & €8M',
   },
   {
     id: 'centro_sportivo',
     name: 'Centro Sportivo',
     icon: '🏟️',
     desc: 'Campi sintetici, sauna e mensa stellata.',
-    baseCost: 220000000,
-    tapAdd: 18000,
-    incomeAdd: 1100000,
+    baseCost: 550000000,
+    tapAdd: 9000,
+    incomeAdd: 520000,
     unlockLeague: 3,
     unlockText: 'Sblocca: Serie A',
     visualBuilding: 'centro',
@@ -445,24 +446,24 @@ export const UPGRADES = [
     name: 'Settore Giovanile',
     icon: '🌱',
     desc: 'Cantera d\'oro che sforna plusvalenze ogni settimana.',
-    baseCost: 4500000000,
+    baseCost: 16000000000,
     tapAdd: 0,
-    incomeAdd: 18000000,
+    incomeAdd: 6800000,
     unlockLeague: 3,
-    unlockRunCash: 1500000000,
-    unlockText: 'Sblocca: Serie A & €1,5B',
+    unlockRunCash: 4000000000,
+    unlockText: 'Sblocca: Serie A & €4B',
   },
   {
     id: 'stadio_proprieta',
     name: 'Stadio di Proprietà',
     icon: '🏛️',
     desc: 'Tribuna VIP dorata con skybox e hospitality esclusiva.',
-    baseCost: 140000000000,
-    tapAdd: 420000,
-    incomeAdd: 480000000,
+    baseCost: 750000000000,
+    tapAdd: 180000,
+    incomeAdd: 135000000,
     unlockLeague: 4,
-    unlockRunCashOr: 40000000000,
-    unlockText: 'Sblocca: Notte Europea o €40B',
+    unlockRunCashOr: 120000000000,
+    unlockText: 'Sblocca: Notte Europea o €120B',
     visualBuilding: 'vip',
   },
   {
@@ -470,12 +471,12 @@ export const UPGRADES = [
     name: 'Fondo Sovrano',
     icon: '👑',
     desc: 'Budget cosmico, sponsor globale e arena leggendaria.',
-    baseCost: 6500000000000,
-    tapAdd: 15000000,
-    incomeAdd: 18000000000,
+    baseCost: 60000000000000,
+    tapAdd: 4500000,
+    incomeAdd: 3800000000,
     unlockLeague: 4,
-    unlockRunCash: 1800000000000,
-    unlockText: 'Sblocca: Notte Europea & €1,8T',
+    unlockRunCash: 12000000000000,
+    unlockText: 'Sblocca: Notte Europea & €12T',
   },
 ];
 
@@ -618,7 +619,7 @@ export const SECRET_PLAYERS = [
   },
 ];
 
-// Formula doppia: max(base * 1.55^n, peakBaseIncomePerSec * incomeSecondsMult)
+// Formula doppia v4.0: max(base * 1.50^n, peakBaseIncomePerSec * incomeSecondsMult)
 export const PACKS = [
   {
     id: 'oratorio',
@@ -626,7 +627,7 @@ export const PACKS = [
     icon: '🎒',
     desc: 'Talenti grezzi pescati tra un torneo parrocchiale e l\'altro.',
     baseCost: 250,
-    incomeSecondsMult: 20,
+    incomeSecondsMult: 18,
     accent: '#22c55e',
     secretChance: 0.0005, // 0,05%
     weights: { comune: 70, raro: 24, epico: 5.5, leggenda: 0.5 },
@@ -637,7 +638,7 @@ export const PACKS = [
     icon: '🔭',
     desc: 'Relazioni segrete dai migliori campi di provincia.',
     baseCost: 11000,
-    incomeSecondsMult: 55,
+    incomeSecondsMult: 45,
     accent: '#38bdf8',
     secretChance: 0.0015, // 0,15%
     weights: { comune: 32, raro: 47, epico: 18, leggenda: 3 },
@@ -648,7 +649,7 @@ export const PACKS = [
     icon: '💼',
     desc: 'Solo fuoriclasse pronti a spaccare gli spareggi.',
     baseCost: 220000,
-    incomeSecondsMult: 120,
+    incomeSecondsMult: 95,
     accent: '#f59e0b',
     secretChance: 0.005, // 0,50%
     weights: { comune: 0, raro: 38, epico: 46, leggenda: 16 },

@@ -711,10 +711,15 @@ export class StadiumEntities {
       ctx.stroke();
     }
 
-    // Ombra a terra
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
+    // Ombra morbida sfumata Broadcast Arcade HD
+    const shR = (diveTilt ? 13 : 9.5) * s;
+    const shGrad = ctx.createRadialGradient(0, 9.2 * s, 1, 0, 9.2 * s, shR);
+    shGrad.addColorStop(0, 'rgba(0, 0, 0, 0.45)');
+    shGrad.addColorStop(0.65, 'rgba(0, 0, 0, 0.22)');
+    shGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = shGrad;
     ctx.beginPath();
-    ctx.ellipse(0, 9 * s, (diveTilt ? 12 : 8.5) * s, 3.6 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 9.2 * s, shR, 4.0 * s, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Eventuale inclinazione del tuffo del portiere rivale!
@@ -723,71 +728,150 @@ export class StadiumEntities {
       ctx.rotate(diveTilt);
     }
 
-    // Piedi in corsa
-    const footOff = diveTilt ? 0 : stride * 3.2 * s;
+    // Gambe con calzettoni bicolore + scarpini animati
+    const footOff = diveTilt ? 0 : stride * 3.4 * s;
+    ctx.fillStyle = primary;
+    ctx.fillRect(-4.1 * s, 5.2 * s + footOff * 0.25, 2.7 * s, 3.0 * s);
+    ctx.fillRect(1.4 * s, 5.2 * s - footOff * 0.25, 2.7 * s, 3.0 * s);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(-4.1 * s, 5.2 * s + footOff * 0.25, 2.7 * s, 0.9 * s);
+    ctx.fillRect(1.4 * s, 5.2 * s - footOff * 0.25, 2.7 * s, 0.9 * s);
+
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
-    ctx.ellipse(-3.2 * s, 7.5 * s + footOff * 0.4, 2.5 * s, 1.5 * s, 0, 0, Math.PI * 2);
-    ctx.ellipse(3.2 * s, 7.5 * s - footOff * 0.4, 2.5 * s, 1.5 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(-2.8 * s, 8.6 * s + footOff * 0.38, 2.5 * s, 1.35 * s, 0, 0, Math.PI * 2);
+    ctx.ellipse(2.8 * s, 8.6 * s - footOff * 0.38, 2.5 * s, 1.35 * s, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Pantaloncini
+    // Pantaloncini sagomati con profilo laterale
     ctx.fillStyle = secondary;
-    ctx.fillRect(-4.8 * s, 2.5 * s, 9.6 * s, 4 * s);
+    ctx.beginPath();
+    ctx.roundRect(-5.0 * s, 2.1 * s, 10.0 * s, 3.9 * s, 1.4 * s);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
 
-    // Maglia bicolore + spalle
+    // Braccia/maniche che oscillano correndo
+    const armSwing = diveTilt ? -2.2 * s : -stride * 1.9 * s;
+    ctx.fillStyle = '#fdba74';
+    ctx.beginPath();
+    ctx.arc(-7.6 * s, -1.6 * s + armSwing, 1.7 * s, 0, Math.PI * 2);
+    ctx.arc(7.6 * s, -1.6 * s - armSwing, 1.7 * s, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Maglia arcade dettagliata bicolore + colletto + maniche
     ctx.fillStyle = primary;
     ctx.beginPath();
-    ctx.roundRect(-7.5 * s, -7.2 * s, 15 * s, 10.6 * s, 3.8 * s);
+    ctx.roundRect(-7.5 * s, -7.4 * s, 15 * s, 10.2 * s, 3.8 * s);
     ctx.fill();
 
     ctx.fillStyle = secondary;
-    ctx.fillRect(-2.4 * s, -7.0 * s, 4.8 * s, 10.2 * s);
+    ctx.fillRect(-2.4 * s, -7.2 * s, 4.8 * s, 9.8 * s);
+
+    // Maniche
     ctx.fillStyle = primary;
     ctx.beginPath();
-    ctx.arc(-6.8 * s, -4.4 * s, 2.6 * s, 0, Math.PI * 2);
-    ctx.arc(6.8 * s, -4.4 * s, 2.6 * s, 0, Math.PI * 2);
+    ctx.arc(-7.0 * s, -4.4 * s, 2.7 * s, 0, Math.PI * 2);
+    ctx.arc(7.0 * s, -4.4 * s, 2.7 * s, 0, Math.PI * 2);
     ctx.fill();
+
+    // Riflesso superiore morbido sulla maglia
+    const jSheen = ctx.createLinearGradient(0, -7.4 * s, 0, 2.6 * s);
+    jSheen.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
+    jSheen.addColorStop(0.5, 'rgba(255, 255, 255, 0)');
+    jSheen.addColorStop(1, 'rgba(0, 0, 0, 0.16)');
+    ctx.fillStyle = jSheen;
+    ctx.beginPath();
+    ctx.roundRect(-7.5 * s, -7.4 * s, 15 * s, 10.2 * s, 3.8 * s);
+    ctx.fill();
+
+    // Colletto a V
+    ctx.strokeStyle = secondary;
+    ctx.lineWidth = 1.2 * s;
+    ctx.beginPath();
+    ctx.moveTo(-2.4 * s, -7.2 * s);
+    ctx.lineTo(0, -5.1 * s);
+    ctx.lineTo(2.4 * s, -7.2 * s);
+    ctx.stroke();
 
     ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
     ctx.lineWidth = 1.1;
     ctx.beginPath();
-    ctx.roundRect(-7.5 * s, -7.2 * s, 15 * s, 10.6 * s, 3.8 * s);
+    ctx.roundRect(-7.5 * s, -7.4 * s, 15 * s, 10.2 * s, 3.8 * s);
     ctx.stroke();
 
-    // Testa + capelli
-    ctx.fillStyle = '#fdba74';
+    // Testa espressiva + acconciature differenziate per numero maglia
+    const headGrad = ctx.createRadialGradient(-1.2 * s, -13 * s, 0.8 * s, 0, -11.8 * s, 4.8 * s);
+    headGrad.addColorStop(0, '#fed7aa');
+    headGrad.addColorStop(1, '#f59e6b');
+    ctx.fillStyle = headGrad;
     ctx.beginPath();
-    ctx.arc(0, -11.4 * s, 4.3 * s, 0, Math.PI * 2);
+    ctx.arc(0, -11.8 * s, 4.4 * s, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#1e293b';
-    ctx.beginPath();
-    ctx.arc(0, -12.6 * s, 4.2 * s, Math.PI * 1.05, Math.PI * 1.95);
-    ctx.fill();
+    ctx.strokeStyle = 'rgba(124, 45, 18, 0.45)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
 
-    // Numero maglia
-    ctx.font = `900 ${Math.round(8.2 * s)}px system-ui, sans-serif`;
+    const hairCols = ['#0f172a', '#3f2a1d', '#713f12', '#475569'];
+    const hairStyle = Number(number || 0) % 3;
+    ctx.fillStyle = hairCols[Number(number || 0) % hairCols.length];
+    ctx.beginPath();
+    ctx.arc(0, -13.0 * s, 4.35 * s, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.fill();
+    if (hairStyle === 1) {
+      // Ciuffetto dinamico
+      ctx.beginPath();
+      ctx.moveTo(-2.2 * s, -15.5 * s);
+      ctx.lineTo(0.2 * s, -18.0 * s);
+      ctx.lineTo(2.4 * s, -15.5 * s);
+      ctx.closePath();
+      ctx.fill();
+    } else if (hairStyle === 2) {
+      // Fascia sportiva nei colori sociali
+      ctx.fillStyle = secondary;
+      ctx.fillRect(-4.1 * s, -14.2 * s, 8.2 * s, 1.3 * s);
+    }
+
+    // Numero maglia nitido
+    ctx.font = `900 ${Math.round(8.0 * s)}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineWidth = 2.4;
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.9)';
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.92)';
     ctx.strokeText(String(number), 0, -1.6 * s);
     ctx.fillStyle = '#ffffff';
     ctx.fillText(String(number), 0, -1.6 * s);
 
     ctx.restore();
 
-    // Etichetta cognome dritta sotto i piedi (solo per i nostri giocatori)
+    // Pillola nome semitrasparente elegante con bordino colorato per rarità!
     if (label) {
       ctx.save();
       ctx.translate(pt.x, pt.y);
-      ctx.fillStyle = 'rgba(7, 12, 22, 0.8)';
-      ctx.fillRect(-20 * s, 11 * s, 40 * s, 9.5 * s);
-      ctx.fillStyle = labelColor || '#f8fafc';
+      const shortLbl = label.slice(0, 9);
       ctx.font = `800 ${Math.round(6.6 * s)}px system-ui, sans-serif`;
+      const tw = ctx.measureText(shortLbl).width;
+      const pw = Math.max(30 * s, tw + 9 * s);
+      const ph = 10.2 * s;
+      const rarBorder =
+        rarity === 'segreto'
+          ? labelColor || '#fb923c'
+          : RARITIES[rarity]?.color || 'rgba(148, 163, 184, 0.65)';
+
+      ctx.fillStyle = 'rgba(7, 12, 22, 0.78)';
+      ctx.beginPath();
+      ctx.roundRect(-pw * 0.5, 11.2 * s, pw, ph, 5 * s);
+      ctx.fill();
+
+      ctx.strokeStyle = rarBorder;
+      ctx.lineWidth = rarity === 'segreto' || rarity === 'leggenda' ? 1.3 : 1.0;
+      ctx.stroke();
+
+      ctx.fillStyle = labelColor || '#f8fafc';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(label.slice(0, 9), 0, 15.8 * s);
+      ctx.fillText(shortLbl, 0, 16.4 * s);
       ctx.restore();
     }
   }

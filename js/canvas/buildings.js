@@ -219,76 +219,144 @@ export function renderStadiumBuildings(ctx, w, h, g, t, upgrades = {}, clubInfo,
     renderUltrasCurvaUpperStands(ctx, w, g, t, curvaLvl, leagueIndex, clubInfo, env);
   }
 
-  // 2. PANINARO FUORI STADIO (furgoncino street-food con fumo animato in alto a sinistra fuori campo)
+  // 2. PANINARO -> CHIOSCO STADIO -> FOOD LOUNGE VIP (evolve con la categoria!)
   if (paninaroLvl >= 1) {
     const isUp = paninaroLvl >= 10;
-    const vx = Math.max(6, g.topLeft - 26);
-    const vy = g.topY - 26;
+    const vx = Math.max(5, g.topLeft - 28);
+    const vy = g.topY - 27;
     ctx.save();
-    for (let i = 0; i < (isUp ? 4 : 3); i++) {
-      const ph = (t * 0.65 + i * 0.28) % 1;
-      const sx = vx + 14 + Math.sin(t * 2.5 + i) * 3;
-      const sy = Math.max(18, vy - 3 - ph * 16);
-      ctx.fillStyle = `rgba(226, 232, 240, ${((1 - ph) * 0.45).toFixed(2)})`;
+
+    if (leagueIndex >= 3) {
+      // SERIE A / NOTTE EUROPEA / MONDIALE / SUPERLEGA: Food Lounge VIP elegante con vetrate & neon!
+      const lw = isUp ? 34 : 29;
+      const lh = 15;
+      const neonCol =
+        leagueIndex === 6 ? '#facc15' : leagueIndex === 5 ? '#fbbf24' : '#38bdf8';
+
+      // Bagliore soffuso sotto-tettoia
+      ctx.fillStyle = '#0f172a';
       ctx.beginPath();
-      ctx.arc(sx, sy, 2.5 + ph * 4.2, 0, Math.PI * 2);
+      ctx.roundRect(vx, vy, lw, lh, 3.5);
       ctx.fill();
-    }
-    ctx.fillStyle = isUp ? '#f59e0b' : '#f8fafc';
-    ctx.beginPath();
-    ctx.roundRect(vx, vy, isUp ? 30 : 25, 13, 3);
-    ctx.fill();
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
 
-    ctx.fillStyle = clubInfo.primary;
-    ctx.fillRect(vx + 2, vy + 1, isUp ? 20 : 16, 4);
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(vx + 4, vy + 5, 11, 5);
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.arc(vx + 6, vy + 13.5, 2.4, 0, Math.PI * 2);
-    ctx.arc(vx + (isUp ? 23 : 19), vy + 13.5, 2.4, 0, Math.PI * 2);
-    ctx.fill();
+      // Vetrate illuminate interne calde
+      const glass = ctx.createLinearGradient(vx, vy, vx + lw, vy + lh);
+      glass.addColorStop(0, 'rgba(254, 240, 138, 0.48)');
+      glass.addColorStop(0.5, 'rgba(251, 191, 36, 0.25)');
+      glass.addColorStop(1, 'rgba(56, 189, 248, 0.35)');
+      ctx.fillStyle = glass;
+      ctx.fillRect(vx + 3, vy + 4.5, lw - 6, 7.5);
 
-    if (isUp) {
-      ctx.fillStyle = '#fef08a';
-      ctx.fillRect(vx + 5, vy - 4, 18, 3.5);
+      // Profilo tettoia neon pulsante
+      ctx.strokeStyle = neonCol;
+      ctx.lineWidth = isUp ? 1.8 : 1.3;
+      ctx.shadowColor = neonCol;
+      ctx.shadowBlur = 6 + Math.sin(t * 4) * 2;
+      ctx.beginPath();
+      ctx.moveTo(vx + 1, vy + 1.5);
+      ctx.lineTo(vx + lw - 1, vy + 1.5);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Mini insegna VIP dorata sopra la lounge
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(vx + 6, vy - 5, lw - 12, 4.5);
+      ctx.fillStyle = neonCol;
+      ctx.fillRect(vx + 8, vy - 3.6, lw - 16, 1.8);
+    } else if (leagueIndex === 2) {
+      // SERIE C: Chiosco stadio moderno con tendalino a strisce sociali!
+      const kw = isUp ? 31 : 27;
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.roundRect(vx, vy + 1, kw, 14, 2.5);
+      ctx.fill();
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Tendalino bicolore
+      for (let s = 0; s < 5; s++) {
+        ctx.fillStyle = s % 2 === 0 ? clubInfo.primary : clubInfo.secondary;
+        ctx.fillRect(vx + 1 + s * ((kw - 2) / 5), vy + 1, (kw - 2) / 5, 4.5);
+      }
+      // Bancone illuminato
+      ctx.fillStyle = '#fef3c7';
+      ctx.fillRect(vx + 4, vy + 7, kw - 8, 5);
+    } else {
+      // TERZA CAT. / PROMOZIONE: Furgoncino street-food fumante classico!
+      for (let i = 0; i < (isUp ? 4 : 3); i++) {
+        const ph = (t * 0.65 + i * 0.28) % 1;
+        const sx = vx + 14 + Math.sin(t * 2.5 + i) * 3;
+        const sy = Math.max(18, vy - 3 - ph * 16);
+        ctx.fillStyle = `rgba(226, 232, 240, ${((1 - ph) * 0.45).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.5 + ph * 4.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = isUp ? '#f59e0b' : '#f8fafc';
+      ctx.beginPath();
+      ctx.roundRect(vx, vy, isUp ? 30 : 25, 13, 3);
+      ctx.fill();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      ctx.fillStyle = clubInfo.primary;
+      ctx.fillRect(vx + 2, vy + 1, isUp ? 20 : 16, 4);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(vx + 4, vy + 5, 11, 5);
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(vx + 6, vy + 13.5, 2.4, 0, Math.PI * 2);
+      ctx.arc(vx + (isUp ? 23 : 19), vy + 13.5, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (isUp) {
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(vx + 5, vy - 4, 18, 3.5);
+      }
     }
     ctx.restore();
   }
 
-  // 3. STORE MAGLIETTE (chiosco merchandising a destra del recinto superiore)
+  // 3. STORE MAGLIETTE (Chiosco -> Boutique illuminata LED in Serie A+)
   if (storeLvl >= 1) {
     const isUp = storeLvl >= 10;
-    const sx = Math.min(w - 30, g.topRight - 2);
+    const isPro = leagueIndex >= 3;
+    const sw = isPro ? (isUp ? 30 : 26) : isUp ? 26 : 22;
+    const sx = Math.min(w - sw - 4, g.topRight - 2);
     const sy = g.topY - 26;
     ctx.save();
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = isPro ? '#0f172a' : '#1e293b';
     ctx.beginPath();
-    ctx.roundRect(sx, sy, isUp ? 26 : 22, 14, 3);
+    ctx.roundRect(sx, sy, sw, 14, 3);
     ctx.fill();
     ctx.fillStyle = clubInfo.primary;
-    ctx.fillRect(sx, sy, isUp ? 26 : 22, 4.5);
-    ctx.fillStyle = clubInfo.secondary;
-    ctx.fillRect(sx + 7, sy + 6, 7, 6);
-    if (isUp) {
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(sx, sy, 26, 14);
+    ctx.fillRect(sx, sy, sw, 4.5);
+    ctx.fillStyle = isPro ? 'rgba(224, 242, 254, 0.72)' : clubInfo.secondary;
+    ctx.fillRect(sx + 5, sy + 6, sw - 10, 6);
+    if (isUp || isPro) {
+      ctx.strokeStyle = leagueIndex >= 5 ? '#fbbf24' : '#38bdf8';
+      ctx.lineWidth = isPro ? 1.5 : 1.2;
+      ctx.strokeRect(sx, sy, sw, 14);
     }
     ctx.restore();
   }
 
-  // 4. PULMINO SOCIALE / PANCHINE COPERTE PRO (bordo inferiore)
+  // 4. PULMINO SOCIALE / PANCHINE COPERTE PRO (evolvono con profili plexiglass in Serie A+)
   if (pulminoLvl >= 1 || centroLvl >= 1) {
     const isUp = pulminoLvl >= 10 || centroLvl >= 1;
+    const isPro = leagueIndex >= 3;
     const by = g.bottomY + 3;
     ctx.save();
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = isPro ? 'rgba(15, 23, 42, 0.85)' : '#0f172a';
     ctx.fillRect(g.bottomLeft + g.bottomW * 0.1, by, g.bottomW * 0.25, 11);
     ctx.fillRect(g.bottomLeft + g.bottomW * 0.65, by, g.bottomW * 0.25, 11);
+    if (isPro) {
+      ctx.fillStyle = 'rgba(186, 230, 253, 0.24)';
+      ctx.fillRect(g.bottomLeft + g.bottomW * 0.1 + 2, by + 3, g.bottomW * 0.25 - 4, 6);
+      ctx.fillRect(g.bottomLeft + g.bottomW * 0.65 + 2, by + 3, g.bottomW * 0.25 - 4, 6);
+    }
     ctx.fillStyle = isUp ? '#fbbf24' : clubInfo.primary;
     ctx.fillRect(g.bottomLeft + g.bottomW * 0.1, by, g.bottomW * 0.25, 3);
     ctx.fillStyle = clubInfo.secondary;

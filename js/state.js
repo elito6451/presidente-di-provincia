@@ -13,6 +13,8 @@ import {
   DEFAULT_CLUB_COLORS,
   TACTICS,
   PRESTIGE_UNLOCK_RUN_CASH,
+  PRESTIGE_SHARES_EXPONENT,
+  SEASON_BONUS_TOKENS,
   MILESTONE_LEVELS,
   MILESTONE_TOKEN_REWARDS,
   FORMATION_SLOTS_DEF,
@@ -26,6 +28,7 @@ import {
   sortRosterInPlace,
 } from './gacha.js';
 import { getResearchEffects } from './research.js';
+import { getChallengePerks } from './challenges.js';
 
 export function createEmptyLineup() {
   return { POR: null, DIF: null, CEN: null, ATT1: null, ATT2: null };
@@ -54,6 +57,7 @@ export function createInitialState() {
     lineup: createEmptyLineup(),
     discoveredSecrets: [],
     claimedCareerMilestones: {},
+    claimedSeasonPromotions: [], // v4.0: gettoni promozione erogati 1 sola volta per categoria per Stagione
     completedChallenges: [],
     cleanSheetStreak: 0,
     boughtIncomeUpgradeThisRun: false,
@@ -328,14 +332,20 @@ export function getBulkUpgradePlan(state, upgrade, mode = state.buyMode || '1x')
   };
 }
 
-// Formula doppia v3.5: max(base * 1.55^n, runPeakBaseIncome * K) — immune a boost temporanei e rimozione titolari!
+// Formula doppia v4.0: max(base * 1.50^n, runPeakBaseIncome * K) con sconti Sconto Procuratori + Solo Giovani!
 export function getPackCost(state, pack, stats = null) {
   const opened = (state.packPurchases && state.packPurchases[pack.id]) || 0;
-  const expCost = Math.floor(pack.baseCost * Math.pow(PACK_COST_GROWTH, opened));
+  const expCost = pack.baseCost * Math.pow(PACK_COST_GROWTH, opened);
   const curBase = stats ? stats.baseIncomeNoTempBoosts : 0;
   const peakBase = Math.max(state.runPeakBaseIncome || 0, curBase);
-  const incomeFloor = Math.floor(peakBase * (pack.incomeSecondsMult || 20));
-  return Math.max(expCost, incomeFloor);
+  const incomeFloor = peakBase * (pack.incomeSecondsMult || 18);
+  const rawCost = Math.max(expCost, incomeFloor);
+
+  const research = stats?.research || getResearchEffects(state);
+  const perks = stats?.challengePerks || getChallengePerks(state, research.challengePerkMult);
+  const challengeDiscount = Math.max(0.75, 1 - (perks.packDiscountPct || 0) / 100);
+  const discountMult = (research.packCostMult || 1) * challengeDiscount;
+  return Math.max(50, Math.floor(rawCost * discountMult));
 }
 
 export function getFreePackCount(state, packId) {
@@ -386,7 +396,7 @@ export function petPolpetta(state, now = Date.now()) {
 
 export function getPendingPrestigeShares(state) {
   if ((state.runEarned || 0) < PRESTIGE_UNLOCK_RUN_CASH) return 0;
-  return Math.floor(Math.pow(state.runEarned / PRESTIGE_UNLOCK_RUN_CASH, 0.42));
+  return Math.floor(Math.pow(state.runEarned / PRESTIGE_UNLOCK_RUN_CASH, PRESTIGE_SHARES_EXPONENT));
 }
 
 export function canPrestige(state) {
@@ -452,13 +462,20 @@ export function computeStats(state, now = Date.now()) {
     if (player.secretId === 'vavelocino') hasVavelocino = true;
   }
 
-  const squadPower = Math.round(rawSquadPower * (1 + squadPowerPct / 100));
+  const challengePerks = getChallengePerks(state, research.challengePerkMult);
+  const totalSquadPowerPct = squadPowerPct + (challengePerks.squadPowerPct || 0);
+  const squadPower = Math.round(
+    rawSquadPower * (1 + totalSquadPowerPct / 100) * (research.squadPowerMult || 1)
+  );
   const prestigeMult = 1 + (shares * research.shareBonusPct) / 100;
   const seasonMult = Math.pow(2, state.seasonStars || 0); // ×2 (+100%) per ogni Stella d'Oro ★!
-  const challengeMult = 1 + (state.completedChallenges?.length || 0) * 0.05;
+  const challengeIncomeMult = 1 + (challengePerks.globalIncomePct || 0) / 100;
+  const challengeTapMult = 1 + (challengePerks.tapPct || 0) / 100;
+  const marketingMult = research.globalIncomeMult || 1;
   const leagueMult = league.multiplier;
 
-  const permanentMult = prestigeMult * seasonMult * challengeMult * leagueMult;
+  const permanentMult =
+    prestigeMult * seasonMult * challengeIncomeMult * marketingMult * leagueMult;
 
   const adBoostMult = isBoostActive(state, now) ? 2 : 1;
   const invBoostMult = isInvasionBoostActive(state, now) ? 3 : 1;
@@ -467,7 +484,7 @@ export function computeStats(state, now = Date.now()) {
   const globalMult = permanentMult * boostMult;
 
   const baseIncomeNoTempBoosts = baseIncome * (1 + rosterIncomePct / 100) * permanentMult;
-  const tapValue = baseTap * (1 + rosterTapPct / 100) * globalMult;
+  const tapValue = baseTap * (1 + rosterTapPct / 100) * challengeTapMult * globalMult;
   const incomePerSec = baseIncomeNoTempBoosts * boostMult;
   const critChance = Math.min(0.68, 0.06 + rosterCritPct / 100);
   const critMultiplier = research.critMultiplier;
@@ -478,6 +495,7 @@ export function computeStats(state, now = Date.now()) {
   return {
     league,
     research,
+    challengePerks,
     starterCount: starterPlayers.length,
     baseTap,
     baseIncome,
@@ -490,7 +508,9 @@ export function computeStats(state, now = Date.now()) {
     infraLevels,
     prestigeMult,
     seasonMult,
-    challengeMult,
+    challengeMult: challengeIncomeMult,
+    challengeTapMult,
+    marketingMult,
     leagueMult,
     adBoostMult,
     invBoostMult,
@@ -621,10 +641,11 @@ export function buyUpgradeBulk(state, upgradeId, mode = state.buyMode || '1x') {
   for (const m of MILESTONE_LEVELS) {
     if (oldLevel < m && newLevel >= m) {
       newMilestones.push(m);
+      const rewardTok = MILESTONE_TOKEN_REWARDS[m] || 0;
       const key = `${upgrade.id}:${m}`;
-      if (!state.claimedCareerMilestones[key]) {
+      if (rewardTok > 0 && !state.claimedCareerMilestones[key]) {
         state.claimedCareerMilestones[key] = true;
-        tokensAwarded += MILESTONE_TOKEN_REWARDS[m] || 1;
+        tokensAwarded += rewardTok;
       }
     }
   }
@@ -677,8 +698,7 @@ export function awardLeagueVictory(state) {
 
   if (totalRounds > 1 && stageIdx < totalRounds - 1) {
     state.playoffStage = stageIdx + 1;
-    const semiTokens = Math.max(3, Math.floor((league.promotionTokens || 10) * 0.35));
-    addGoldTokens(state, semiTokens);
+    // Semifinale superata: premio prestigio sportivo (i Gettoni promozione arrivano vincendo la categoria!)
     return {
       promoted: false,
       finalCup: false,
@@ -686,12 +706,18 @@ export function awardLeagueVictory(state) {
       nextRound: rounds[state.playoffStage],
       newLeague: league,
       trophyName: null,
-      tokensAwarded: semiTokens,
+      tokensAwarded: 0,
     };
   }
 
-  const promoTokens = league.promotionTokens || 5;
-  addGoldTokens(state, promoTokens);
+  // v4.0: Gettoni promozione erogati 1 sola volta per categoria per Stagione (anti-farming micro-prestige!)
+  if (!Array.isArray(state.claimedSeasonPromotions)) state.claimedSeasonPromotions = [];
+  let promoTokens = 0;
+  if (!state.claimedSeasonPromotions.includes(league.id)) {
+    state.claimedSeasonPromotions.push(league.id);
+    promoTokens = league.promotionTokens || 4;
+    addGoldTokens(state, promoTokens);
+  }
 
   if (!state.trophies.includes(league.trophyId)) {
     state.trophies.push(league.trophyId);
@@ -754,6 +780,7 @@ function _buildPersistentCarry(state) {
     trophies: [...(state.trophies || [])],
     discoveredSecrets: [...(state.discoveredSecrets || [])],
     claimedCareerMilestones: { ...(state.claimedCareerMilestones || {}) },
+    claimedSeasonPromotions: [...(state.claimedSeasonPromotions || [])],
     completedChallenges: [...(state.completedChallenges || [])],
     cleanSheetStreak: state.cleanSheetStreak || 0,
     research: { ...(state.research || {}) },
@@ -771,6 +798,22 @@ function _buildPersistentCarry(state) {
   };
 }
 
+// Applica Eredità del Club post-Prestige: SOLO cassa iniziale + livelli Tap (mai upgrade /s, 100% compatibile con Austerity!)
+function _applyClubLegacyStart(state) {
+  const { legacyLevel } = getResearchEffects(state);
+  if (!legacyLevel || legacyLevel <= 0) return;
+
+  const startCash = Math.floor(500 * Math.pow(4, legacyLevel - 1));
+  state.money = startCash;
+  state.leagueEarned = startCash;
+  state.runEarned = startCash;
+  state.upgrades.righe_gesso = legacyLevel * 2;
+  if (legacyLevel >= 3) {
+    state.upgrades.scarpini_tacchetti = legacyLevel;
+  }
+  state.boughtIncomeUpgradeThisRun = false;
+}
+
 export function performPrestige(state) {
   if (!canPrestige(state)) return { ok: false, gainedShares: 0 };
 
@@ -785,6 +828,7 @@ export function performPrestige(state) {
     prestigeShares: nextShares,
     seasonCompleted: false,
   });
+  _applyClubLegacyStart(state);
   return { ok: true, gainedShares, totalShares: nextShares };
 }
 
@@ -792,7 +836,7 @@ export function startNewSeason(state) {
   if (!canStartNewSeason(state)) return { ok: false };
 
   const gainedShares = getPendingPrestigeShares(state);
-  const bonusTokens = 25;
+  const bonusTokens = SEASON_BONUS_TOKENS;
   const carry = _buildPersistentCarry(state);
 
   const fresh = createInitialState();
@@ -800,9 +844,11 @@ export function startNewSeason(state) {
     seasonNumber: carry.seasonNumber + 1,
     seasonStars: carry.seasonStars + 1,
     seasonCompleted: false,
+    claimedSeasonPromotions: [], // Nuova Stagione -> tutte le 7 promozioni tornano a dare Gettoni!
     goldTokens: carry.goldTokens + bonusTokens,
     prestigeShares: carry.prestigeShares + gainedShares,
   });
+  _applyClubLegacyStart(state);
 
   return {
     ok: true,

@@ -175,23 +175,55 @@ function drawCornerFlags(ctx, g, t, clubInfo) {
   ctx.restore();
 }
 
-// Leggera texture e riflesso diagonale sull'erba
-function drawTurfTexture(ctx, g, alpha = 0.08) {
+// Broadcast Arcade HD: texture rasatura, usura aree di rigore, illuminazione radiale fari e vignetta perimetrale
+function drawTurfTexture(ctx, g, alpha = 0.08, wearStrength = 0.32) {
   ctx.save();
   tracePitchQuad(ctx, g, 0, 0, 1, 1);
   ctx.clip();
 
-  // Riflesso morbido diagonale sul prato
+  // 1. Illuminazione radiale morbida dei fari al centro del campo + vignetta sottile ai bordi
+  const spot = ctx.createRadialGradient(g.cx, g.cy, g.bottomW * 0.06, g.cx, g.cy, g.bottomW * 0.64);
+  spot.addColorStop(0, `rgba(255, 255, 232, ${(alpha + 0.06).toFixed(3)})`);
+  spot.addColorStop(0.55, 'rgba(255, 255, 255, 0)');
+  spot.addColorStop(0.84, 'rgba(2, 10, 22, 0.12)');
+  spot.addColorStop(1, 'rgba(2, 8, 18, 0.28)');
+  ctx.fillStyle = spot;
+  ctx.fillRect(0, g.topY - 4, g.w, g.height + 8);
+
+  // 2. Riflesso diagonale morbido Broadcast HD
   const sheen = ctx.createLinearGradient(g.topLeft, g.topY, g.bottomRight, g.bottomY);
   sheen.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
   sheen.addColorStop(0.45, 'rgba(255, 255, 255, 0)');
-  sheen.addColorStop(0.7, `rgba(255, 255, 255, ${(alpha * 0.65).toFixed(3)})`);
-  sheen.addColorStop(1, 'rgba(0, 0, 0, 0.12)');
+  sheen.addColorStop(0.72, `rgba(255, 255, 255, ${(alpha * 0.55).toFixed(3)})`);
+  sheen.addColorStop(1, 'rgba(0, 0, 0, 0.14)');
   ctx.fillStyle = sheen;
   ctx.fillRect(0, g.topY, g.w, g.height);
 
-  // Sottile grana orizzontale di rasatura
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+  // 3. Usura realistica erba davanti alle due porte e sul dischetto di rigore
+  if (wearStrength > 0) {
+    const wearSpots = [
+      { nx: 0.045, ny: 0.50, rx: 0.045, ry: 0.11 },
+      { nx: 0.955, ny: 0.50, rx: 0.045, ry: 0.11 },
+      { nx: 0.115, ny: 0.50, rx: 0.022, ry: 0.036 },
+      { nx: 0.885, ny: 0.50, rx: 0.022, ry: 0.036 },
+    ];
+    for (const ws of wearSpots) {
+      const pt = projectPitch(ws.nx, ws.ny, g);
+      const radX = ws.rx * pt.rowW;
+      const radY = ws.ry * g.height;
+      const wg = ctx.createRadialGradient(pt.x, pt.y, 1, pt.x, pt.y, Math.max(radX, radY));
+      wg.addColorStop(0, `rgba(128, 102, 58, ${(wearStrength * 0.55).toFixed(2)})`);
+      wg.addColorStop(0.65, `rgba(116, 98, 52, ${(wearStrength * 0.24).toFixed(2)})`);
+      wg.addColorStop(1, 'rgba(116, 98, 52, 0)');
+      ctx.fillStyle = wg;
+      ctx.beginPath();
+      ctx.ellipse(pt.x, pt.y, radX, radY, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 4. Sottile grana orizzontale di rasatura
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.038)';
   ctx.lineWidth = 1;
   for (let i = 1; i < 12; i++) {
     const ptL = projectPitch(0, i / 12, g);
@@ -238,6 +270,10 @@ function drawPerspectiveLines(ctx, g, { stroke = 'rgba(255,255,255,0.9)', lineWi
   ctx.save();
   ctx.strokeStyle = stroke;
   ctx.lineWidth = lineWidth;
+  if (!crooked) {
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.38)';
+    ctx.shadowBlur = 4;
+  }
 
   drawPitchLine(ctx, g, 0, 0, 1, 0, crooked ? 1 : 0);
   drawPitchLine(ctx, g, 1, 0, 1, 1, crooked ? 2 : 0);
@@ -300,12 +336,16 @@ function drawGoals3D(ctx, g, { brokenRight = false, glow = false, netBulgeLeft =
     const bbTop = { x: bbGround.x + bulgePx * 0.45, y: bbGround.y - postHBot * 0.86 };
 
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    // Ombra morbida a terra della porta + pali proiettati sul prato
+    const gShadow = ctx.createLinearGradient(topPost.x, topPost.y, btGround.x + dir * 6, bbGround.y);
+    gShadow.addColorStop(0, 'rgba(0, 0, 0, 0.34)');
+    gShadow.addColorStop(1, 'rgba(0, 0, 0, 0.1)');
+    ctx.fillStyle = gShadow;
     ctx.beginPath();
-    ctx.moveTo(topPost.x, topPost.y);
-    ctx.lineTo(btGround.x, btGround.y);
-    ctx.lineTo(bbGround.x, bbGround.y);
-    ctx.lineTo(botPost.x, botPost.y);
+    ctx.moveTo(topPost.x - dir * 3, topPost.y + 1);
+    ctx.lineTo(btGround.x + dir * 4, btGround.y + 2);
+    ctx.lineTo(bbGround.x + dir * 5, bbGround.y + 3);
+    ctx.lineTo(botPost.x - dir * 3, botPost.y + 2);
     ctx.closePath();
     ctx.fill();
 
@@ -1220,6 +1260,31 @@ export function renderStadiumTheme(ctx, leagueIndex, w, h, g, t, env, clubInfo, 
       break;
   }
 
-  // Costruzioni fisiche sbloccate dagli upgrade Club (Curva Ultras sugli spalti superiori, Paninaro, Torri Faro, Store, VIP)
+  // Luci perimetrali sottili sugli spalti/bordocampo nelle categorie Serie C+
+  if (leagueIndex >= 2) {
+    ctx.save();
+    const lightCol =
+      leagueIndex === 6
+        ? 'rgba(250, 204, 21, 0.42)'
+        : leagueIndex === 5
+          ? 'rgba(254, 240, 138, 0.38)'
+          : leagueIndex === 4
+            ? 'rgba(56, 189, 248, 0.38)'
+            : 'rgba(255, 255, 255, 0.24)';
+    for (let i = 0; i < 8; i++) {
+      const f = (i + 0.5) / 8;
+      const lx = g.topLeft + f * g.topW;
+      const ly = g.topY - 12.5;
+      const pulse = 0.55 + 0.45 * Math.sin(t * 3.5 + i * 0.9);
+      ctx.fillStyle = lightCol;
+      ctx.globalAlpha = pulse;
+      ctx.beginPath();
+      ctx.arc(lx, ly, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Costruzioni fisiche sbloccate dagli upgrade Club (evolvono con la categoria!)
   renderStadiumBuildings(ctx, w, h, g, t, upgrades, clubInfo, leagueIndex, env);
 }
