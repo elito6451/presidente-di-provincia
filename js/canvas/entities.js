@@ -1006,41 +1006,110 @@ export class StadiumEntities {
       ctx.textBaseline = 'middle';
       ctx.fillText('TIRA!', pt.x, pt.y + 0.5);
     } else {
-      // Pericolo avversario PARA! con anello rosso che si stringe con urgenza
-      const pulse = 1 + Math.sin(t * 15) * 0.08;
-      const radius = 24 * pulse;
-      const ratio = Math.max(0, act.timeLeft / act.maxTime);
-      const shrinkR = radius + ratio * 22;
+      // Pericolo avversario PARA! v4.5: Finta gialla, poi Anello di Precisione ASPETTA... -> PARA! / PERFETTO!
+      if (act.isFeint) {
+        const pulse = 1 + Math.sin(t * 20) * 0.1;
+        const r = 24 * pulse;
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.25)';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, r + 10, 0, Math.PI * 2);
+        ctx.fill();
 
-      const glow = ctx.createRadialGradient(pt.x, pt.y, 4, pt.x, pt.y, radius * 1.8);
-      glow.addColorStop(0, 'rgba(239, 68, 68, 0.85)');
-      glow.addColorStop(0.55, 'rgba(220, 38, 38, 0.35)');
-      glow.addColorStop(1, 'rgba(220, 38, 38, 0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, radius * 1.8, 0, Math.PI * 2);
-      ctx.fill();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, r * 0.9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
 
-      ctx.fillStyle = '#dc2626';
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#fecaca';
-      ctx.lineWidth = 2.6;
-      ctx.stroke();
+        ctx.fillStyle = '#fde047';
+        ctx.font = '900 10px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('FINTA!', pt.x, pt.y + 0.5);
+      } else {
+        const baseR = 23;
+        const maxRingR = 54;
+        const minRingR = 12;
+        const curRingR = maxRingR - progress * (maxRingR - minRingR);
+        const bandMin = act.bandMin ?? 0.45;
+        const bandMax = act.bandMax ?? 0.92;
+        const perfectMin = act.perfectMin ?? 0.61;
+        const perfectMax = act.perfectMax ?? 0.73;
 
-      // Anello countdown esterno che collassa
-      ctx.strokeStyle = '#fef08a';
-      ctx.lineWidth = 3.5;
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, shrinkR, 0, Math.PI * 2);
-      ctx.stroke();
+        const bandOuterR = maxRingR - bandMin * (maxRingR - minRingR);
+        const bandInnerR = maxRingR - bandMax * (maxRingR - minRingR);
+        const inSaveZone = progress >= bandMin;
+        const inPerfectZone = progress >= perfectMin && progress <= perfectMax;
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 10.5px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('PARA!', pt.x, pt.y + 0.5);
+        // Fascia bersaglio fissa (ciano/verde dove parare!)
+        ctx.fillStyle = inPerfectZone
+          ? 'rgba(250, 204, 21, 0.34)'
+          : inSaveZone
+            ? 'rgba(14, 165, 233, 0.36)'
+            : 'rgba(14, 165, 233, 0.18)';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, bandOuterR, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, Math.max(4, bandInnerR), 0, Math.PI * 2, true);
+        ctx.fill();
+
+        ctx.strokeStyle = inPerfectZone
+          ? '#fde047'
+          : inSaveZone
+            ? '#38bdf8'
+            : 'rgba(148, 163, 184, 0.75)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, bandOuterR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(4, bandInnerR), 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Cerchio centrale: AMBRA/ARDESIA "ASPETTA..." prima di bandMin -> CIANO/VERDE "PARA!" appena entra!
+        ctx.fillStyle = inPerfectZone
+          ? '#0284c7'
+          : inSaveZone
+            ? '#0ea5e9'
+            : 'rgba(51, 65, 85, 0.92)';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, baseR * 0.92, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = inPerfectZone
+          ? '#fde047'
+          : inSaveZone
+            ? '#4ade80'
+            : '#f59e0b';
+        ctx.lineWidth = inSaveZone ? 2.8 : 2.2;
+        ctx.stroke();
+
+        // Anello esterno che si stringe verso la zona di parata
+        ctx.strokeStyle = inPerfectZone
+          ? '#fde047'
+          : inSaveZone
+            ? '#4ade80'
+            : '#f59e0b';
+        ctx.lineWidth = inSaveZone ? 4.4 : 3.2;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, curRingR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = inSaveZone ? '#ffffff' : '#fde68a';
+        ctx.font = inSaveZone ? '900 9.5px system-ui, sans-serif' : '900 8.2px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const txt = !inSaveZone
+          ? 'ASPETTA...'
+          : inPerfectZone
+            ? 'PERFETTO!'
+            : act.isRebound
+              ? 'RIBATTUTA!'
+              : 'PARA!';
+        ctx.fillText(txt, pt.x, pt.y + 0.5);
+      }
     }
     ctx.restore();
   }
@@ -1422,6 +1491,182 @@ export class StadiumEntities {
         ctx.fillStyle = '#fef08a';
         ctx.font = '900 9px system-ui, sans-serif';
         ctx.fillText(`BLACKOUT! RIACCENDI ${rem}x`, ex, ey + 38.5);
+        ctx.restore();
+      } else if (flashEvent.kind === 'neighbor_pitchfork') {
+        // Il Vicino col Forcone furibondo affacciato dalla recinzione in alto!
+        const ex = flashEvent.nx * w;
+        const ey = flashEvent.ny * h;
+        const shake = Math.sin(t * 22) * 2.5;
+        ctx.save();
+        ctx.translate(ex + shake, ey);
+
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, 26 + Math.sin(t * 11) * 3, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Corpo camicia a quadri + cappello da contadino
+        ctx.fillStyle = '#b91c1c';
+        ctx.beginPath();
+        ctx.roundRect(-10, 0, 20, 14, 4);
+        ctx.fill();
+        ctx.fillStyle = '#fdba74';
+        ctx.beginPath();
+        ctx.arc(0, -8, 7.5, 0, Math.PI * 2);
+        ctx.fill();
+        // Cappello paglia
+        ctx.fillStyle = '#eab308';
+        ctx.beginPath();
+        ctx.ellipse(0, -14, 12, 3.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(-6, -19, 12, 5);
+        // Forcone agitato!
+        ctx.save();
+        ctx.translate(12, 2);
+        ctx.rotate(Math.sin(t * 18) * 0.35);
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(0, 14);
+        ctx.lineTo(0, -12);
+        ctx.stroke();
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-5, -12);
+        ctx.lineTo(5, -12);
+        ctx.moveTo(-5, -12);
+        ctx.lineTo(-5, -20);
+        ctx.moveTo(0, -12);
+        ctx.lineTo(0, -21);
+        ctx.moveTo(5, -12);
+        ctx.lineTo(5, -20);
+        ctx.stroke();
+        ctx.restore();
+
+        const rem = flashEvent.tapsRequired - flashEvent.tapsDone;
+        ctx.fillStyle = 'rgba(7, 12, 22, 0.94)';
+        ctx.fillRect(-52, 18, 104, 16);
+        ctx.fillStyle = '#fca5a5';
+        ctx.font = '900 8.5px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`VICINO COL FORCONE! ${rem}x`, 0, 26);
+        ctx.restore();
+      } else if (flashEvent.kind === 'ape_car') {
+        // Ape Car sgangherata che attraversa il campo sbuffando fumo grigio!
+        const pt = projectPitch(flashEvent.nx, flashEvent.ny, g);
+        const dir = flashEvent.vx >= 0 ? 1 : -1;
+        const rumble = Math.sin(t * 36) * 1.4;
+        ctx.save();
+        ctx.translate(pt.x, pt.y + rumble);
+
+        // Cerchio bersaglio
+        ctx.strokeStyle = '#4ade80';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, -4, 28 + Math.sin(t * 10) * 3, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.save();
+        ctx.scale(dir, 1);
+        // Sbuffi di fumo scappamento dietro
+        for (let i = 0; i < 3; i++) {
+          const p = (t * 2.5 + i * 0.33) % 1;
+          ctx.fillStyle = `rgba(148, 163, 184, ${(1 - p) * 0.55})`;
+          ctx.beginPath();
+          ctx.arc(-22 - p * 18, 4 - p * 12, 4 + p * 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Ombra Ape
+        ctx.fillStyle = 'rgba(0,0,0,0.36)';
+        ctx.beginPath();
+        ctx.ellipse(0, 12, 22, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Cassone posteriore verde scuro
+        ctx.fillStyle = '#15803d';
+        ctx.fillRect(-20, -4, 20, 11);
+        ctx.strokeStyle = '#052e16';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(-20, -4, 20, 11);
+        // Cabina anteriore Ape verde
+        ctx.fillStyle = '#22c55e';
+        ctx.beginPath();
+        ctx.moveTo(0, 7);
+        ctx.lineTo(0, -13);
+        ctx.lineTo(11, -13);
+        ctx.lineTo(17, -2);
+        ctx.lineTo(17, 7);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        // Finestrino cabina
+        ctx.fillStyle = '#bae6fd';
+        ctx.beginPath();
+        ctx.moveTo(3, -10);
+        ctx.lineTo(10, -10);
+        ctx.lineTo(14, -3);
+        ctx.lineTo(3, -3);
+        ctx.closePath();
+        ctx.fill();
+        // Ruote
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(-11, 8, 4.8, 0, Math.PI * 2);
+        ctx.arc(12, 8, 4.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#e2e8f0';
+        ctx.beginPath();
+        ctx.arc(-11, 8, 2, 0, Math.PI * 2);
+        ctx.arc(12, 8, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        const rem = flashEvent.tapsRequired - flashEvent.tapsDone;
+        ctx.fillStyle = 'rgba(7, 12, 22, 0.94)';
+        ctx.fillRect(-46, 16, 92, 16);
+        ctx.fillStyle = '#86efac';
+        ctx.font = '900 8.5px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`APE CAR! FERMA ${rem}x`, 0, 24);
+        ctx.restore();
+      } else if (flashEvent.kind === 'crazy_smoke') {
+        // Nebbia fitta da Fumogeni nei colori sociali del club!
+        const rem = flashEvent.tapsRequired - flashEvent.tapsDone;
+        const density = Math.max(0.22, rem / flashEvent.tapsRequired);
+        ctx.save();
+        for (let i = 0; i < 12; i++) {
+          const sx = ((i * 73 + t * (16 + (i % 3) * 8)) % (w + 90)) - 45;
+          const sy = g.topY + 18 + (i % 4) * (g.height * 0.22) + Math.sin(t * 2 + i) * 8;
+          const rad = 42 + (i % 3) * 18;
+          const grad = ctx.createRadialGradient(sx, sy, 6, sx, sy, rad);
+          const col = i % 2 === 0 ? clubInfo.primary : '#e2e8f0';
+          grad.addColorStop(0, col);
+          grad.addColorStop(1, 'rgba(15, 23, 42, 0)');
+          ctx.globalAlpha = 0.42 * density;
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(sx, sy, rad, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        // Banner centrale lampeggiante
+        const cx = w * 0.5;
+        const cy = g.topY + g.height * 0.46;
+        ctx.fillStyle = 'rgba(7, 12, 22, 0.92)';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(cx - 88, cy - 16, 176, 32, 12);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#e0f2fe';
+        ctx.font = '900 10px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`💨 FUMOGENI! DIRADA ${rem}x`, cx, cy);
         ctx.restore();
       } else {
         const ex = flashEvent.nx * w;

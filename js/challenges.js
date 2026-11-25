@@ -78,7 +78,7 @@ export const PRESIDENT_CHALLENGES = [
     id: 'provincial_empire',
     name: 'Impero Provinciale',
     icon: '🌌',
-    desc: 'Completa una Stagione intera vincendo la Superlega Galattica.',
+    desc: 'Conquista la Superlega Galattica raggiungendo Dinastia Lv. 1.',
     tokenReward: 25,
     perkType: 'globalIncomePct',
     perkValue: 20,
@@ -149,10 +149,9 @@ export function evaluateRosterChallenges(state) {
     unlockChallenge(state, 'collector', newlyCompleted);
   }
 
-  // 8. Impero Provinciale (controllo retroattivo se ha già completato una stagione!)
+  // 8. Impero Provinciale (Dinastia Lv. 1+)
   if (
-    state.seasonCompleted ||
-    (state.seasonStars || 0) >= 1 ||
+    (state.dynastyLevel || 0) >= 1 ||
     (state.trophies || []).includes('coppa_superlega')
   ) {
     unlockChallenge(state, 'provincial_empire', newlyCompleted);
@@ -196,8 +195,8 @@ export function evaluateMatchChallenges(
     if (byPenalties) {
       unlockChallenge(state, 'nerves_of_steel', newlyCompleted);
     }
-    // 8. Impero Provinciale: conquista della Superlega Galattica
-    if (finalCup || state.seasonCompleted) {
+    // 8. Impero Provinciale: prima conquista della Superlega Galattica (Dinastia Lv. 1)
+    if (finalCup || (state.dynastyLevel || 0) >= 1) {
       unlockChallenge(state, 'provincial_empire', newlyCompleted);
     }
   }
@@ -229,8 +228,9 @@ export function computePresidentProfile(state) {
   const trophies = (state.trophies || []).length;
   const secrets = (state.discoveredSecrets || []).length;
   const challenges = (state.completedChallenges || []).length;
-  const seasons = Math.max(0, (state.seasonNumber || 1) - 1);
-  const stars = state.seasonStars || 0;
+  const dynastyLevel = state.dynastyLevel || 0;
+  const masteryCount = Object.values(state.masteryTrophies || {}).filter(Boolean).length;
+  const legendaryRelics = (state.relicInventory || []).filter((r) => r.rarity === 'leggendario').length;
   const prestiges = state.prestigeCount || 0;
   const wins = state.stats?.matchesWon || 0;
 
@@ -238,7 +238,9 @@ export function computePresidentProfile(state) {
     trophies * 120 +
     secrets * 200 +
     challenges * 180 +
-    (seasons + stars) * 350 +
+    dynastyLevel * 400 +
+    masteryCount * 95 +
+    legendaryRelics * 110 +
     prestiges * 100 +
     wins * 35;
 
@@ -268,26 +270,28 @@ export function computePresidentProfile(state) {
     totalSecrets: SECRET_PLAYERS.length,
     challenges,
     totalChallenges: PRESIDENT_CHALLENGES.length,
-    stars,
+    dynastyLevel,
+    masteryCount,
+    totalMastery: LEAGUES.length * 4,
+    legendaryRelics,
   };
 }
 
 // Scheda Carriera compatta per WhatsApp (zero spoiler sui nomi dei Segreti!)
 export function buildWhatsAppCard(state, stats) {
   const profile = computePresidentProfile(state);
-  const starsStr = profile.stars > 0 ? ` ${'★'.repeat(Math.min(10, profile.stars))}` : '';
+  const dynastyTag = profile.dynastyLevel > 0 ? ` 👑×${profile.dynastyLevel}` : '';
   const league = LEAGUES[state.leagueIndex] || LEAGUES[0];
   const peakIncome = Math.max(state.stats?.maxIncomePerSec || 0, stats.incomePerSec || 0);
-  const hasChampions = (state.trophies || []).includes('coppa_europa');
-  const hasSuperlega = (state.trophies || []).includes('coppa_superlega');
 
   const lines = [
     `⚽ *PRESIDENTE DI PROVINCIA* 🏆`,
-    `🏟️ *${state.clubName}*${starsStr}`,
+    `🏟️ *${state.clubName}*${dynastyTag}`,
     `👔 Lv.${profile.level} — _${profile.title}_`,
-    `📅 Stagione ${state.seasonNumber || 1} • Lega: *${league.name}*`,
-    `🏆 Trofei: *${profile.trophies}/${profile.totalTrophies}*${hasChampions ? ' (⭐ Champions!)' : ''}${hasSuperlega ? ' (🌌 Galattica!)' : ''}`,
-    `💼 Prestige: *${state.prestigeCount || 0}* (${formatNumber(state.prestigeShares || 0)} Azioni)`,
+    `🌌 Lega: *${league.name}*${profile.dynastyLevel > 0 ? ` • *Dinastia Lv.${profile.dynastyLevel}*` : ''}`,
+    `🏅 Maestria Categorie: *${profile.masteryCount}/${profile.totalMastery}*`,
+    `🏺 Cimeli Leggendari: *${profile.legendaryRelics}*`,
+    `🏆 Trofei: *${profile.trophies}/${profile.totalTrophies}* • Prestige: *${state.prestigeCount || 0}*`,
     `💸 Record incassi: *${formatMoney(peakIncome)}/s*`,
     `🕵️ Leggende Segrete: *${profile.secrets}/${profile.totalSecrets}*`,
     `🎯 Sfide Presidente: *${profile.challenges}/${profile.totalChallenges}*`,

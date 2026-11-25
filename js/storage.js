@@ -10,6 +10,9 @@ import {
   SECRET_PLAYERS,
   MILESTONE_LEVELS,
   FORMATION_SLOTS_DEF,
+  PRESTIGE_UNLOCK_RUN_CASH,
+  PRESTIGE_SHARES_EXPONENT,
+  MASTERY_TIERS,
 } from './config.js';
 import {
   createInitialState,
@@ -21,6 +24,12 @@ import { encodeBase64UTF8, decodeBase64UTF8 } from './format.js';
 import { sortRosterInPlace, getSecretTemplate, extractNickname } from './gacha.js';
 import { PERMANENT_RESEARCHES, getResearchEffects } from './research.js';
 import { PRESIDENT_CHALLENGES } from './challenges.js';
+import {
+  RELIC_BY_ID,
+  RELIC_RARITIES,
+  EXPEDITION_DEFS,
+  getRelicEffects,
+} from './expeditions.js';
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const VALID_SECRET_IDS = new Set(SECRET_PLAYERS.map((s) => s.secretId));
@@ -103,17 +112,22 @@ export function sanitizeState(raw) {
     tutorialStep = totalTaps >= 5 || leagueIndex > 0 ? 6 : 0;
   }
 
-  // Migrazione claimedSeasonPromotions: su salvataggi pre-v4 marca le leghe già superate nella stagione corrente
+  // Migrazione claimedCareerPromotions (da claimedSeasonPromotions v4.0 o leghe già superate)
   const validLeagueIds = new Set(LEAGUES.map((l) => l.id));
-  let claimedSeasonPromotions = [];
-  if (Array.isArray(raw.claimedSeasonPromotions)) {
-    claimedSeasonPromotions = raw.claimedSeasonPromotions.filter((id) => validLeagueIds.has(id));
+  const rawPromos = Array.isArray(raw.claimedCareerPromotions)
+    ? raw.claimedCareerPromotions
+    : Array.isArray(raw.claimedSeasonPromotions)
+      ? raw.claimedSeasonPromotions
+      : null;
+  let claimedCareerPromotions = [];
+  if (rawPromos) {
+    claimedCareerPromotions = rawPromos.filter((id) => validLeagueIds.has(id));
   } else if (isPreV4) {
     for (let i = 0; i < leagueIndex; i++) {
-      if (LEAGUES[i]) claimedSeasonPromotions.push(LEAGUES[i].id);
+      if (LEAGUES[i]) claimedCareerPromotions.push(LEAGUES[i].id);
     }
     if (raw.seasonCompleted && LEAGUES[LEAGUES.length - 1]) {
-      claimedSeasonPromotions.push(LEAGUES[LEAGUES.length - 1].id);
+      claimedCareerPromotions.push(LEAGUES[LEAGUES.length - 1].id);
     }
   }
 
@@ -123,6 +137,88 @@ export function sanitizeState(raw) {
     raw.runEarned !== undefined
       ? sanitizeNumber(raw.runEarned, 0, 0)
       : Math.max(leagueEarned, totalEarned);
+
+  // Migrazione v4.0 -> v4.5: vecchie seasonStars + seasonCompleted diventano dynastyLevel!
+  const legacyDynasty =
+    Math.floor(sanitizeNumber(raw.seasonStars, 0, 0)) + (raw.seasonCompleted ? 1 : 0);
+  const dynastyLevel = Math.max(
+    Math.floor(sanitizeNumber(raw.dynastyLevel, 0, 0)),
+    legacyDynasty
+  );
+
+  // Migrazione anti-double-dip careerPrestigePeakEarned!
+  const rawSharesFloor =
+    prestigeShares > 0
+      ? PRESTIGE_UNLOCK_RUN_CASH * Math.pow(prestigeShares, 1 / PRESTIGE_SHARES_EXPONENT)
+      : 0;
+  const safeSharesFloor = Number.isFinite(rawSharesFloor) ? Math.min(rawSharesFloor, 1e300) : 1e300;
+  const careerPrestigePeakEarned = Math.max(
+    sanitizeNumber(raw.careerPrestigePeakEarned, 0, 0),
+    raw.version && raw.version >= 7 ? 0 : runEarned,
+    safeSharesFloor
+  );
+
+  // Sanitizza 28 Trofei di Maestria
+  const validMasteryTiers = new Set(MASTERY_TIERS.map((t) => t.id));
+  const masteryTrophies = {};
+  if (raw.masteryTrophies && typeof raw.masteryTrophies === 'object') {
+    for (const [k, v] of Object.entries(raw.masteryTrophies)) {
+      if (!v) continue;
+      const [lgId, tId] = k.split(':');
+      if (validLeagueIds.has(lgId) && validMasteryTiers.has(tId)) {
+        masteryTrophies[k] = true;
+      }
+    }
+  }
+
+  // Sanitizza Inventario Cimeli, 3 Slot & Spedizione attiva
+  const relicInventory = [];
+  const validRelicUids = new Set();
+  if (Array.isArray(raw.relicInventory)) {
+    for (const r of raw.relicInventory) {
+      if (!r || typeof r !== 'object' || !RELIC_BY_ID[r.relicId]) continue;
+      const uid = typeof r.uid === 'string' && !validRelicUids.has(r.uid)
+        ? r.uid
+        : `rel_${Math.random().toString(36).slice(2, 9)}`;
+      validRelicUids.add(uid);
+      relicInventory.push({
+        uid,
+        relicId: r.relicId,
+        rarity: RELIC_RARITIES[r.rarity] ? r.rarity : 'comune',
+      });
+    }
+  }
+  const equippedRelics = [null, null, null];
+  if (Array.isArray(raw.equippedRelics)) {
+    const usedTypes = new Set();
+    const invMap = new Map(relicInventory.map((r) => [r.uid, r]));
+    for (let i = 0; i < 3; i++) {
+      const uid = raw.equippedRelics[i];
+      const item = uid ? invMap.get(uid) : null;
+      if (item && !usedTypes.has(item.relicId)) {
+        equippedRelics[i] = uid;
+        usedTypes.add(item.relicId);
+      }
+    }
+  }
+  let activeExpedition = null;
+  if (raw.activeExpedition && typeof raw.activeExpedition === 'object') {
+    const expDef = EXPEDITION_DEFS.find((e) => e.id === raw.activeExpedition.id);
+    if (expDef) {
+      activeExpedition = {
+        id: expDef.id,
+        startedAt: sanitizeNumber(raw.activeExpedition.startedAt, Date.now(), 0),
+        endsAt: sanitizeNumber(raw.activeExpedition.endsAt, Date.now(), 0),
+      };
+    }
+  }
+
+  const claimedDynastyMilestones = {};
+  if (raw.claimedDynastyMilestones && typeof raw.claimedDynastyMilestones === 'object') {
+    for (const [k, v] of Object.entries(raw.claimedDynastyMilestones)) {
+      if (v) claimedDynastyMilestones[k] = true;
+    }
+  }
 
   const state = {
     ...base,
@@ -135,19 +231,23 @@ export function sanitizeState(raw) {
     money: sanitizeNumber(raw.money, 0, 0),
     leagueEarned,
     runEarned,
+    careerPrestigePeakEarned,
     runPeakBaseIncome: sanitizeNumber(raw.runPeakBaseIncome, 0, 0),
     totalEarned,
     leagueIndex,
-    seasonNumber: Math.max(1, Math.floor(sanitizeNumber(raw.seasonNumber, 1, 1))),
-    seasonStars: Math.floor(sanitizeNumber(raw.seasonStars, 0, 0)),
-    seasonCompleted: Boolean(raw.seasonCompleted),
+    dynastyLevel,
+    claimedDynastyMilestones,
     europeanCupWon: Boolean(raw.europeanCupWon),
     upgrades: {},
     roster: [],
     lineup: createEmptyLineup(),
     discoveredSecrets: [],
     claimedCareerMilestones: {},
-    claimedSeasonPromotions,
+    claimedCareerPromotions,
+    masteryTrophies,
+    relicInventory,
+    equippedRelics,
+    activeExpedition,
     completedChallenges: Array.isArray(raw.completedChallenges)
       ? raw.completedChallenges.filter((id) => VALID_CHALLENGES.has(id))
       : [],
@@ -166,6 +266,8 @@ export function sanitizeState(raw) {
     invasionBoostUntil: sanitizeNumber(raw.invasionBoostUntil, 0, 0),
     polpettaBoostUntil: sanitizeNumber(raw.polpettaBoostUntil, 0, 0),
     polpettaCooldownUntil: sanitizeNumber(raw.polpettaCooldownUntil, 0, 0),
+    apeBoostUntil: sanitizeNumber(raw.apeBoostUntil, 0, 0),
+    smokeTapBoostUntil: sanitizeNumber(raw.smokeTapBoostUntil, 0, 0),
     tutorialStep,
     stats: {
       totalTaps,
@@ -318,20 +420,31 @@ export function calculateOfflineEarnings(state, now = Date.now()) {
   if (rawElapsedSec < OFFLINE_MIN_SECONDS) return null;
 
   const stats = computeStats(
-    { ...state, boostUntil: 0, invasionBoostUntil: 0, polpettaBoostUntil: 0 },
+    {
+      ...state,
+      boostUntil: 0,
+      invasionBoostUntil: 0,
+      apeBoostUntil: 0,
+      smokeTapBoostUntil: 0,
+      polpettaBoostUntil: 0,
+    },
     now
   );
   if (stats.incomePerSec <= 0) return null;
 
-  const { offlineCapSec, offlineCapHours } = getResearchEffects(state);
-  const cappedSec = Math.min(rawElapsedSec, offlineCapSec);
-  const earned = Math.floor(stats.incomePerSec * cappedSec);
+  const { offlineCapHours } = getResearchEffects(state);
+  const relicFx = getRelicEffects(state);
+  const totalCapHours = offlineCapHours + (relicFx.offlineExtraHours || 0);
+  const totalCapSec = totalCapHours * 3600;
+  const offlineBonusMult = 1 + (relicFx.offlineBonusPct || 0) / 100;
+  const cappedSec = Math.min(rawElapsedSec, totalCapSec);
+  const earned = Math.floor(stats.incomePerSec * cappedSec * offlineBonusMult);
   if (earned <= 0) return null;
 
   return {
     elapsedSec: Math.floor(cappedSec),
-    wasCapped: rawElapsedSec > offlineCapSec,
-    capHours: offlineCapHours,
+    wasCapped: rawElapsedSec > totalCapSec,
+    capHours: totalCapHours,
     amount: earned,
   };
 }

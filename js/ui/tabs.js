@@ -9,10 +9,13 @@ import {
   SECRET_PLAYERS,
   MILESTONE_TOKEN_REWARDS,
   PRESTIGE_UNLOCK_RUN_CASH,
+  PRESTIGE_SOFTCAP_EXPONENT,
   FORMATION_SLOTS_DEF,
-  SEASON_BONUS_TOKENS,
+  MASTERY_TIERS,
+  DYNASTY_INCOME_BONUS_PER_LVL,
+  DYNASTY_POWER_CAP,
 } from '../config.js';
-import { formatMoney, formatNumber, escapeHTML } from '../format.js';
+import { formatMoney, formatNumber, formatDuration, escapeHTML } from '../format.js';
 import {
   computeStats,
   getUpgradeLevel,
@@ -21,14 +24,16 @@ import {
   getBulkUpgradePlan,
   getPackCost,
   getFreePackCount,
+  getTotalFreePacks,
   getStarters,
   getBenchPlayers,
   canStartSpareggio,
-  canStartNewSeason,
   canPrestige,
   getPendingPrestigeShares,
   getChecklistStatus,
   getCurrentMatchRound,
+  getCurrentLeagueNextMastery,
+  getMasteryBonuses,
 } from '../state.js';
 import {
   RESEARCH_GROUPS,
@@ -44,6 +49,17 @@ import {
   canFuseBenchIntoStarter,
 } from '../gacha.js';
 import {
+  EXPEDITION_DEFS,
+  RELIC_RARITIES,
+  RELIC_BY_ID,
+  isExpeditionUnlocked,
+  getExpeditionStatus,
+  getEquippedRelics,
+  sortRelicInventory,
+  getRelicFusionGroups,
+  getRelicRecycleCash,
+} from '../expeditions.js';
+import {
   PRESIDENT_CHALLENGES,
   computePresidentProfile,
 } from '../challenges.js';
@@ -53,6 +69,7 @@ export class TabsController {
   constructor(actions) {
     this.actions = actions;
     this.activeTab = 'club';
+    this.scoutingSubtab = 'buste'; // 'buste' | 'formazione' | 'spedizioni'
     this.container = document.getElementById('tab-content');
     this.tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
 
@@ -72,6 +89,16 @@ export class TabsController {
     this.actions.onTabChanged?.();
   }
 
+  setScoutingSubtab(sub, silent = false) {
+    if (!['buste', 'formazione', 'spedizioni'].includes(sub)) return;
+    if (this.scoutingSubtab === sub) return;
+    this.scoutingSubtab = sub;
+    if (!silent) {
+      this.container.scrollTop = 0;
+      this.actions.onTabChanged?.();
+    }
+  }
+
   _bindNav() {
     for (const btn of this.tabButtons) {
       btn.addEventListener('click', () => this.switchTo(btn.dataset.tab));
@@ -85,6 +112,8 @@ export class TabsController {
 
       if (btn.dataset.buyMode) {
         this.actions.onSetBuyMode(btn.dataset.buyMode);
+      } else if (btn.dataset.scoutingSubtab) {
+        this.setScoutingSubtab(btn.dataset.scoutingSubtab);
       } else if (btn.dataset.upgradeId) {
         this.actions.onBuyUpgrade(btn.dataset.upgradeId);
       } else if (btn.dataset.researchId) {
@@ -101,6 +130,18 @@ export class TabsController {
         this.actions.onFuseBench(btn.dataset.fuseBenchId, btn.dataset.fuseSlotKey);
       } else if (btn.dataset.sellBenchId) {
         this.actions.onSellBench(btn.dataset.sellBenchId);
+      } else if (btn.dataset.startExpId) {
+        this.actions.onStartExpedition(btn.dataset.startExpId);
+      } else if (btn.id === 'btn-claim-exp') {
+        this.actions.onClaimExpedition();
+      } else if (btn.dataset.equipRelicUid) {
+        this.actions.onEquipRelic(btn.dataset.equipRelicUid);
+      } else if (btn.dataset.unequipRelicSlot !== undefined) {
+        this.actions.onUnequipRelic(Number(btn.dataset.unequipRelicSlot));
+      } else if (btn.dataset.fuseRelicId && btn.dataset.fuseRelicRarity) {
+        this.actions.onFuseRelics(btn.dataset.fuseRelicId, btn.dataset.fuseRelicRarity);
+      } else if (btn.dataset.recycleRelicUid) {
+        this.actions.onRecycleRelic(btn.dataset.recycleRelicUid);
       } else if (btn.dataset.tacticId) {
         this.actions.onSelectTactic(btn.dataset.tacticId);
       } else if (btn.dataset.presetPrimary && btn.dataset.presetSecondary) {
@@ -110,8 +151,6 @@ export class TabsController {
         });
       } else if (btn.id === 'btn-start-match') {
         this.actions.onStartMatch();
-      } else if (btn.id === 'btn-new-season') {
-        this.actions.onStartNewSeason();
       } else if (btn.id === 'btn-copy-whatsapp') {
         this.actions.onCopyWhatsApp();
       } else if (btn.id === 'btn-prestige') {
@@ -178,16 +217,30 @@ export class TabsController {
         }
       }
     } else if (this.activeTab === 'scouting') {
-      const stats = computeStats(state);
-      for (const pack of PACKS) {
-        const btn = this.container.querySelector(`button[data-pack-id="${pack.id}"]`);
-        if (!btn) continue;
-        const free = getFreePackCount(state, pack.id);
-        const cost = getPackCost(state, pack, stats);
-        btn.disabled = free <= 0 && state.money < cost;
-        if (free <= 0) {
-          const txt = formatMoney(cost);
-          if (btn.textContent !== txt) btn.textContent = txt;
+      if (this.scoutingSubtab === 'buste') {
+        const stats = computeStats(state);
+        for (const pack of PACKS) {
+          const btn = this.container.querySelector(`button[data-pack-id="${pack.id}"]`);
+          if (!btn) continue;
+          const free = getFreePackCount(state, pack.id);
+          const cost = getPackCost(state, pack, stats);
+          btn.disabled = free <= 0 && state.money < cost;
+          if (free <= 0) {
+            const txt = formatMoney(cost);
+            if (btn.textContent !== txt) btn.textContent = txt;
+          }
+        }
+      } else if (this.scoutingSubtab === 'spedizioni') {
+        const status = getExpeditionStatus(state);
+        if (status) {
+          if (status.ready && !this.container.querySelector('#btn-claim-exp')) {
+            this._renderScouting(state);
+          } else if (!status.ready) {
+            const tEl = this.container.querySelector('#exp-timer-txt');
+            const fEl = this.container.querySelector('#exp-progress-fill');
+            if (tEl) tEl.textContent = formatDuration(status.remainingSec);
+            if (fEl) fEl.style.width = `${status.pct.toFixed(1)}%`;
+          }
         }
       }
     } else if (this.activeTab === 'spareggio') {
@@ -210,7 +263,7 @@ export class TabsController {
       const pending = getPendingPrestigeShares(state);
       const pEl = this.container.querySelector('#prestige-pending-val');
       const pBtn = this.container.querySelector('#btn-prestige');
-      if (pEl) pEl.textContent = `+${pending}`;
+      if (pEl) pEl.textContent = `+${formatNumber(pending)}`;
       if (pBtn) pBtn.disabled = !canPrestige(state);
     }
   }
@@ -220,7 +273,8 @@ export class TabsController {
     const mode = state.buyMode || '1x';
     const mult =
       stats.leagueMult *
-      stats.seasonMult *
+      stats.dynastyMult *
+      stats.masteryIncomeMult *
       stats.prestigeMult *
       stats.challengeMult *
       (stats.marketingMult || 1) *
@@ -245,7 +299,7 @@ export class TabsController {
                   <div class="upgrade-title-row">
                     <span class="upgrade-name">??? Potenziamento Segreto</span>
                   </div>
-                  <div class="upgrade-desc">${escapeHTML(upg.unlockText || 'Prosegui per sbloccare')}</div>
+                  <div class="upgrade-desc">${escapeHTML(upg.unlockText || 'Prosegui di categoria per sbloccare')}</div>
                 </div>
               </div>
               <button type="button" class="buy-btn" disabled>Bloccato</button>
@@ -260,30 +314,34 @@ export class TabsController {
 
         const effects = [];
         if (upg.tapAdd > 0) {
-          effects.push(`+${formatMoney(upg.tapAdd * unitMult * (1 + stats.rosterTapPct / 100))}/tap`);
+          const tapExtra =
+            (1 + stats.rosterTapPct / 100) *
+            (stats.challengeTapMult || 1) *
+            (1 + (stats.masteryBonuses?.tapPct || 0) / 100) *
+            (1 + (stats.relicEffects?.tapPct || 0) / 100) *
+            (stats.smokeTapMult || 1);
+          effects.push(`+${formatMoney(upg.tapAdd * unitMult * tapExtra)}/tap`);
         }
         if (upg.incomeAdd > 0) {
-          effects.push(`+${formatMoney(upg.incomeAdd * unitMult * (1 + stats.rosterIncomePct / 100))}/s`);
+          effects.push(
+            `+${formatMoney(upg.incomeAdd * unitMult * (1 + stats.rosterIncomePct / 100) * (stats.relicIncomeMult || 1))}/s`
+          );
         }
 
         const nextKey = `${upg.id}:${ms.next}`;
         const alreadyClaimedToken = Boolean(state.claimedCareerMilestones?.[nextKey]);
         const nextRewardTok = MILESTONE_TOKEN_REWARDS[ms.next] || 0;
         const nextTokHint =
-          !ms.allDone && nextRewardTok > 0 && !alreadyClaimedToken
-            ? ` (+${nextRewardTok}🪙)`
-            : '';
+          nextRewardTok > 0 && !alreadyClaimedToken ? ` (+${nextRewardTok}🪙)` : '';
 
-        const milestoneHtml = ms.allDone
-          ? `<div class="milestone-row"><span class="milestone-lbl">★ Tutte le Milestone ×16 raggiunte!</span></div>`
-          : `
-            <div class="milestone-row">
-              <div class="milestone-mini-track">
-                <div class="milestone-mini-fill" style="width:${ms.pct.toFixed(0)}%;"></div>
-              </div>
-              <span class="milestone-lbl">Lv.${lvl}/${ms.next} → ×2${nextTokHint}</span>
+        const milestoneHtml = `
+          <div class="milestone-row">
+            <div class="milestone-mini-track">
+              <div class="milestone-mini-fill" style="width:${ms.pct.toFixed(0)}%;"></div>
             </div>
-          `;
+            <span class="milestone-lbl">Lv.${lvl}/${ms.next} → ×2${nextTokHint}</span>
+          </div>
+        `;
 
         const subTag =
           mode === 'MAX'
@@ -300,7 +358,7 @@ export class TabsController {
                 <div class="upgrade-title-row">
                   <span class="upgrade-name">${escapeHTML(upg.name)}</span>
                   <span class="upgrade-lvl">Lv.${lvl}</span>
-                  ${ms.mult > 1 ? `<span class="mult-pill">×${ms.mult}</span>` : ''}
+                  ${ms.mult > 1 ? `<span class="mult-pill">×${formatNumber(ms.mult)}</span>` : ''}
                 </div>
                 <div class="upgrade-desc">${escapeHTML(upg.desc)}</div>
                 <div class="upgrade-effect">${effects.join(' • ')}</div>
@@ -326,9 +384,40 @@ export class TabsController {
 
   _renderScouting(state) {
     const stats = computeStats(state);
-    const { scoutLuckMult } = getResearchEffects(state);
     const starters = getStarters(state);
-    const benchPlayers = getBenchPlayers(state);
+    const filledStarters = starters.filter((s) => s.player).length;
+    const freeTotal = getTotalFreePacks(state);
+    const expStatus = getExpeditionStatus(state);
+    const expReady = Boolean(expStatus && expStatus.ready);
+
+    const subtabBarHtml = `
+      <div class="scouting-subtabs" role="tablist">
+        <button type="button" class="subtab-btn ${this.scoutingSubtab === 'buste' ? 'active' : ''}" data-scouting-subtab="buste">
+          🎒 Buste ${freeTotal > 0 ? `<span class="subtab-pill">${freeTotal}</span>` : ''}
+        </button>
+        <button type="button" class="subtab-btn ${this.scoutingSubtab === 'formazione' ? 'active' : ''}" data-scouting-subtab="formazione">
+          ⚽ Rosa (${filledStarters}/5)
+        </button>
+        <button type="button" class="subtab-btn ${this.scoutingSubtab === 'spedizioni' ? 'active' : ''}" data-scouting-subtab="spedizioni">
+          🗺️ Cimeli ${expReady ? `<span class="subtab-pill gold">!</span>` : ''}
+        </button>
+      </div>
+    `;
+
+    let bodyHtml = '';
+    if (this.scoutingSubtab === 'buste') {
+      bodyHtml = this._renderScoutingBuste(state, stats, starters);
+    } else if (this.scoutingSubtab === 'formazione') {
+      bodyHtml = this._renderScoutingFormazione(state, stats, starters);
+    } else {
+      bodyHtml = this._renderScoutingSpedizioni(state, stats, expStatus);
+    }
+
+    this.container.innerHTML = `${subtabBarHtml}${bodyHtml}`;
+  }
+
+  _renderScoutingBuste(state, stats, starters) {
+    const { scoutLuckMult } = getResearchEffects(state);
     const starterById = new Map(starters.filter((s) => s.player).map((s) => [s.player.id, s]));
 
     const packsHtml = PACKS.map((pack) => {
@@ -372,9 +461,57 @@ export class TabsController {
       `;
     }).join('');
 
+    const discovered = new Set(state.discoveredSecrets || []);
+    const secretSlotsHtml = SECRET_PLAYERS.map((tpl) => {
+      const isFound = discovered.has(tpl.secretId);
+      if (!isFound) {
+        return `
+          <div class="secret-slot locked">
+            <div class="secret-mystery-q">???</div>
+            <div style="font-size:10px;color:#94a3b8;font-weight:700;">Leggenda Segreta</div>
+          </div>
+        `;
+      }
+      const inRoster = state.roster.find((p) => p.secretId === tpl.secretId);
+      const isStarter = inRoster && starterById.has(inRoster.id);
+      const statusBadge = isStarter
+        ? `<span class="starter-tag">TITOLARE • ${'★'.repeat(inRoster.stars)}</span>`
+        : inRoster
+          ? `<span class="upgrade-lvl" style="color:#93c5fd;">IN PANCHINA • ${'★'.repeat(inRoster.stars)}</span>`
+          : `<span class="upgrade-lvl" style="color:#fde047;">SCOPERTA • Da ripescare</span>`;
+      return `
+        <div class="secret-slot unlocked holo-segreto">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
+            <span class="rarity-tag" style="background:rgba(245,158,11,0.25);color:#fde047;">SEGRETO</span>
+            <span style="font-size:10px;font-weight:900;color:#e2e8f0;">#${tpl.jerseyNumber} ${tpl.role}</span>
+          </div>
+          <div style="font-size:12px;font-weight:900;color:#fff;margin-top:2px;">${escapeHTML(tpl.name)}</div>
+          <div style="font-size:10px;color:#cbd5e1;line-height:1.25;">${escapeHTML(tpl.bio)}</div>
+          <div class="secret-ability-pill">${escapeHTML(tpl.abilityName)}: ${escapeHTML(tpl.abilityDesc)}</div>
+          <div style="margin-top:3px;">${statusBadge}</div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="section-label">
+        <span>Buste Scouting (×1,50ⁿ / Reddito)</span>
+        <span>Forza Titolari: ⚡${formatNumber(stats.squadPower)}</span>
+      </div>
+      <div class="pack-grid">${packsHtml}</div>
+
+      <div class="section-label" style="margin-top:8px;">
+        <span>Leggende Segrete (${discovered.size}/${SECRET_PLAYERS.length})</span>
+        <span>+8 🪙 alla 1ª scoperta</span>
+      </div>
+      <div class="secret-grid">${secretSlotsHtml}</div>
+    `;
+  }
+
+  _renderScoutingFormazione(state, stats, starters) {
+    const benchPlayers = getBenchPlayers(state);
     const kitGrad = `linear-gradient(90deg, ${state.clubColors.primary} 0%, ${state.clubColors.primary} 36%, ${state.clubColors.secondary} 36%, ${state.clubColors.secondary} 64%, ${state.clubColors.primary} 64%, ${state.clubColors.primary} 100%)`;
 
-    // Formazione Titolare a 5 Ruoli (SOLO questi 5 applicano bonus e Forza Rosa!)
     const formationHtml = starters
       .map(({ slotKey, slotDef, player }) => {
         if (!player) {
@@ -408,44 +545,11 @@ export class TabsController {
       })
       .join('');
 
-    const discovered = new Set(state.discoveredSecrets || []);
-    const secretSlotsHtml = SECRET_PLAYERS.map((tpl) => {
-      const isFound = discovered.has(tpl.secretId);
-      if (!isFound) {
-        return `
-          <div class="secret-slot locked">
-            <div class="secret-mystery-q">???</div>
-            <div style="font-size:10px;color:#94a3b8;font-weight:700;">Leggenda Segreta</div>
-          </div>
-        `;
-      }
-      const inRoster = state.roster.find((p) => p.secretId === tpl.secretId);
-      const isStarter = inRoster && starterById.has(inRoster.id);
-      const statusBadge = isStarter
-        ? `<span class="starter-tag">TITOLARE • ${'★'.repeat(inRoster.stars)}</span>`
-        : inRoster
-          ? `<span class="upgrade-lvl" style="color:#93c5fd;">IN PANCHINA • ${'★'.repeat(inRoster.stars)}</span>`
-          : `<span class="upgrade-lvl" style="color:#fde047;">SCOPERTA • Da ripescare</span>`;
-      return `
-        <div class="secret-slot unlocked holo-segreto">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
-            <span class="rarity-tag" style="background:rgba(245,158,11,0.25);color:#fde047;">SEGRETO</span>
-            <span style="font-size:10px;font-weight:900;color:#e2e8f0;">#${tpl.jerseyNumber} ${tpl.role}</span>
-          </div>
-          <div style="font-size:12px;font-weight:900;color:#fff;margin-top:2px;">${escapeHTML(tpl.name)}</div>
-          <div style="font-size:10px;color:#cbd5e1;line-height:1.25;">${escapeHTML(tpl.bio)}</div>
-          <div class="secret-ability-pill">${escapeHTML(tpl.abilityName)}: ${escapeHTML(tpl.abilityDesc)}</div>
-          <div style="margin-top:3px;">${statusBadge}</div>
-        </div>
-      `;
-    }).join('');
-
-    // Panchina con azioni: Schiera, Fondi (★+1 su titolare stesso ruolo), Vendi (+€ / +1 🪙)
     const benchHtml =
       benchPlayers.length === 0
         ? `<div class="card" style="text-align:center;color:#94a3b8;font-size:11.5px;">
              ${state.roster.length === 0
-               ? 'Nessun giocatore in rosa.<br/>Apri una busta per riempire i 5 slot titolari!'
+               ? 'Nessun giocatore in rosa.<br/>Apri una busta nella subtab Buste!'
                : 'Panchina vuota! I giocatori extra finiscono qui per essere schierati, fusi (★+1) o venduti.'}
            </div>`
         : benchPlayers
@@ -507,16 +611,10 @@ export class TabsController {
             })
             .join('');
 
-    this.container.innerHTML = `
+    return `
       <div class="section-label">
-        <span>Buste Scouting (×1,50ⁿ / Reddito)</span>
-        <span>Forza Titolari: ⚡${formatNumber(stats.squadPower)}</span>
-      </div>
-      <div class="pack-grid">${packsHtml}</div>
-
-      <div class="section-label" style="margin-top:8px;">
-        <span>Formazione Titolare (${starters.filter((s) => s.player).length}/${FORMATION_SLOTS_DEF.length})</span>
-        <button type="button" class="mini-btn primary" id="btn-auto-lineup">⚡ Auto-schiera migliori</button>
+        <span>Formazione Titolare (${starters.filter((s) => s.player).length}/${FORMATION_SLOTS_DEF.length}) • ⚡${formatNumber(stats.squadPower)}</span>
+        <button type="button" class="mini-btn primary" id="btn-auto-lineup">⚡ Auto-schiera</button>
       </div>
       <div class="formation-card">
         <div class="formation-hint">Solo i 5 titolari schierati applicano bonus e Forza Rosa. Tocca uno slot per cambiare!</div>
@@ -524,16 +622,191 @@ export class TabsController {
       </div>
 
       <div class="section-label" style="margin-top:8px;">
-        <span>Leggende Segrete (${discovered.size}/${SECRET_PLAYERS.length})</span>
-        <span>+8 🪙 alla 1ª scoperta</span>
-      </div>
-      <div class="secret-grid">${secretSlotsHtml}</div>
-
-      <div class="section-label" style="margin-top:8px;">
         <span>Panchina (${benchPlayers.length})</span>
         <span>Fondi ★ o Vendi (+€)</span>
       </div>
       <div class="roster-list">${benchHtml}</div>
+    `;
+  }
+
+  _renderScoutingSpedizioni(state, stats, expStatus) {
+    const equippedSlots = getEquippedRelics(state);
+    const equippedCount = equippedSlots.filter((s) => s.item).length;
+    const equippedUids = new Set(equippedSlots.filter((s) => s.item).map((s) => s.item.uid));
+    const equippedTypes = new Set(equippedSlots.filter((s) => s.item).map((s) => s.item.relicId));
+
+    // 1. Spedizione attiva o lista 4 spedizioni
+    let expSectionHtml = '';
+    if (expStatus) {
+      const def = expStatus.def;
+      expSectionHtml = `
+        <div class="card expedition-active-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <strong style="font-size:13px;color:#fde047;">${def.icon} ${escapeHTML(def.name)}</strong>
+            <span class="upgrade-lvl" id="exp-timer-txt" style="color:${expStatus.ready ? '#4ade80' : '#93c5fd'};">
+              ${expStatus.ready ? 'PRONTA!' : formatDuration(expStatus.remainingSec)}
+            </span>
+          </div>
+          <div style="font-size:11px;color:#cbd5e1;">${escapeHTML(def.desc)}</div>
+          <div class="progress-track" style="height:8px;">
+            <div class="progress-fill ${expStatus.ready ? 'done' : ''}" id="exp-progress-fill" style="width:${expStatus.pct.toFixed(1)}%;"></div>
+          </div>
+          ${
+            expStatus.ready
+              ? `<button type="button" class="cta-btn" id="btn-claim-exp">🎁 Riscatta Cimeli!</button>`
+              : `<div style="font-size:10.5px;color:#94a3b8;text-align:center;">Il timer reale scorre anche a gioco chiuso (Date.now)!</div>`
+          }
+        </div>
+      `;
+    } else {
+      const expCards = EXPEDITION_DEFS.map((def) => {
+        const unlocked = isExpeditionUnlocked(state, def);
+        const mins = Math.round(def.durationSec / 60);
+        const dropTxt = def.minDrops === def.maxDrops ? `${def.minDrops} Cimelio` : `${def.minDrops}–${def.maxDrops} Cimeli`;
+        return `
+          <div class="expedition-card ${unlocked ? '' : 'locked'}">
+            <div class="upgrade-left">
+              <div class="upgrade-icon">${def.icon}</div>
+              <div class="upgrade-info">
+                <div class="upgrade-title-row">
+                  <span class="upgrade-name">${escapeHTML(def.name)}</span>
+                  <span class="upgrade-lvl">${mins} min</span>
+                </div>
+                <div class="upgrade-desc">${escapeHTML(def.desc)}</div>
+                <div class="upgrade-effect" style="color:${unlocked ? '#93c5fd' : '#fca5a5'};">
+                  ${unlocked ? `Bottino: ${dropTxt}` : escapeHTML(def.unlockLabel || `Sblocca in ${LEAGUES[def.unlockLeague]?.name || 'Lega'}`)}
+                </div>
+              </div>
+            </div>
+            <button type="button" class="buy-btn" data-start-exp-id="${def.id}" ${unlocked ? '' : 'disabled'}>
+              ${unlocked ? 'Avvia' : '🔒'}
+            </button>
+          </div>
+        `;
+      }).join('');
+      expSectionHtml = `<div class="pack-grid">${expCards}</div>`;
+    }
+
+    // 2. 3 Slot Cimeli Equipaggiati (Permanenti al Prestige, 1 per tipo!)
+    const slotsHtml = equippedSlots
+      .map(({ slotIdx, item, def }) => {
+        if (!item || !def) {
+          return `
+            <div class="relic-slot empty">
+              <div style="font-size:16px;opacity:0.45;">🏺</div>
+              <div style="font-size:10px;color:#94a3b8;font-weight:800;">Slot ${slotIdx + 1}</div>
+              <div style="font-size:9px;color:#64748b;">Vuoto</div>
+            </div>
+          `;
+        }
+        const rar = RELIC_RARITIES[item.rarity] || RELIC_RARITIES.comune;
+        return `
+          <button type="button" class="relic-slot filled" data-unequip-relic-slot="${slotIdx}" style="border-color:${rar.color};">
+            <div style="font-size:17px;">${def.icon}</div>
+            <div class="relic-slot-name">${escapeHTML(def.name)}</div>
+            <span class="rarity-tag" style="background:${rar.bg};color:${rar.color};font-size:8px;">${rar.label}</span>
+            <div class="relic-slot-eff">${escapeHTML(def.formatEffect(item.rarity))}</div>
+          </button>
+        `;
+      })
+      .join('');
+
+    // 3. Fusioni disponibili (3 identici -> 1 rarità superiore!)
+    const fusionGroups = getRelicFusionGroups(state);
+    const fusionHtml =
+      fusionGroups.length > 0
+        ? `
+          <div class="section-label" style="margin-top:8px;">
+            <span>🔥 Fusioni Cimeli Disponibili (3 → 1)</span>
+          </div>
+          <div class="relic-fusion-list">
+            ${fusionGroups
+              .map((g) => {
+                const def = RELIC_BY_ID[g.relicId];
+                const curR = RELIC_RARITIES[g.rarity];
+                const nxtR = curR?.next ? RELIC_RARITIES[curR.next] : null;
+                if (!def || !curR || !nxtR) return '';
+                return `
+                  <button type="button" class="mini-btn fuse" style="width:100%;padding:7px 9px;font-size:11px;"
+                    data-fuse-relic-id="${g.relicId}" data-fuse-relic-rarity="${g.rarity}">
+                    ${def.icon} Fondi 3× ${escapeHTML(def.name)} (${curR.label} → ${nxtR.label})
+                  </button>
+                `;
+              })
+              .join('')}
+          </div>
+        `
+        : '';
+
+    // 4. Inventario Cimeli
+    sortRelicInventory(state);
+    const inv = state.relicInventory || [];
+    const invHtml =
+      inv.length === 0
+        ? `<div class="card" style="text-align:center;color:#94a3b8;font-size:11.5px;">
+             Nessun Cimelio in bacheca.<br/>Avvia una <strong>Spedizione</strong> qui sopra (dalla Promozione in poi) per trovare Cimeli permanenti!
+           </div>`
+        : inv
+            .map((item) => {
+              const def = RELIC_BY_ID[item.relicId];
+              const rar = RELIC_RARITIES[item.rarity] || RELIC_RARITIES.comune;
+              const isEq = equippedUids.has(item.uid);
+              const dupTypeEquipped = !isEq && equippedTypes.has(item.relicId);
+              const recycleCash = getRelicRecycleCash(item, state, stats);
+              return `
+                <div class="relic-row" style="border-left:3px solid ${rar.color};">
+                  <div class="relic-row-main">
+                    <div style="font-size:20px;flex-shrink:0;">${def ? def.icon : '🏺'}</div>
+                    <div style="min-width:0;flex:1;">
+                      <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                        <span style="font-size:12px;font-weight:900;color:#fff;">${escapeHTML(def ? def.name : 'Cimelio')}</span>
+                        <span class="rarity-tag" style="background:${rar.bg};color:${rar.color};">${rar.label}</span>
+                        ${isEq ? '<span class="starter-tag">EQUIP.</span>' : ''}
+                      </div>
+                      <div style="font-size:10.5px;color:#86efac;font-weight:800;margin-top:2px;">
+                        ${escapeHTML(def ? def.formatEffect(item.rarity) : '')}
+                      </div>
+                    </div>
+                  </div>
+                  ${
+                    isEq
+                      ? ''
+                      : `
+                        <div class="bench-actions">
+                          <button type="button" class="mini-btn primary" data-equip-relic-uid="${item.uid}">
+                            ${dupTypeEquipped ? 'Sostituisci tipo' : 'Equipaggia'}
+                          </button>
+                          <button type="button" class="mini-btn sell" data-recycle-relic-uid="${item.uid}">
+                            ♻️ Ricicla +${formatMoney(recycleCash)}
+                          </button>
+                        </div>
+                      `
+                  }
+                </div>
+              `;
+            })
+            .join('');
+
+    return `
+      <div class="section-label">
+        <span>Spedizioni Squadra (Tempo Reale)</span>
+        <span style="color:#93c5fd;">Permanenti al Prestige</span>
+      </div>
+      ${expSectionHtml}
+
+      <div class="section-label" style="margin-top:8px;">
+        <span>Cimeli Attivi (${equippedCount}/3)</span>
+        <span>Tocca uno slot per rimuovere</span>
+      </div>
+      <div class="relic-slots-grid">${slotsHtml}</div>
+
+      ${fusionHtml}
+
+      <div class="section-label" style="margin-top:8px;">
+        <span>Bacheca Cimeli (${inv.length})</span>
+        <span>Max 1 per tipo equip.</span>
+      </div>
+      <div class="roster-list">${invHtml}</div>
     `;
   }
 
@@ -596,33 +869,13 @@ export class TabsController {
   _renderSpareggio(state, matchCtrl) {
     const { league, round, stageIdx, isKnockoutBracket, rounds } = getCurrentMatchRound(state);
     const nextLeague = LEAGUES[state.leagueIndex + 1] || null;
-    const readyNewSeason = canStartNewSeason(state);
-    const challengesHtml = this._renderChallengesHtml(state);
-
-    if (readyNewSeason) {
-      const nextSeason = (state.seasonNumber || 1) + 1;
-      const nextStars = (state.seasonStars || 0) + 1;
-      const nextMult = Math.pow(2, nextStars);
-      this.container.innerHTML = `
-        <div class="match-card" style="border-color:rgba(250,204,21,0.65);">
-          <div style="font-size:16px;font-weight:900;color:#fde047;">🌌 Campioni della Superlega Galattica!</div>
-          <div style="font-size:12.5px;color:#cbd5e1;line-height:1.45;">
-            Hai completato tutte e <strong>7 le Categorie</strong> della Stagione ${state.seasonNumber || 1}!<br/>
-            Avvia la <strong>Stagione ${nextSeason}</strong> per incidere la <strong>${nextStars}ª Stella d'Oro ★</strong> sul tuo Club (moltiplicatore permanente <strong>×${nextMult}</strong>) e incassare <strong>+${SEASON_BONUS_TOKENS} 🪙 Gettoni d'Oro</strong>!
-          </div>
-          <button type="button" class="cta-btn season-btn" id="btn-new-season">
-            ★ Avvia Stagione ${nextSeason} (+1 ★ ×${nextMult} & +${SEASON_BONUS_TOKENS} 🪙)
-          </button>
-        </div>
-        ${challengesHtml}
-      `;
-      return;
-    }
-
+    const isSuperlega = state.leagueIndex === LEAGUES.length - 1;
+    const dynLvl = state.dynastyLevel || 0;
     const check = getChecklistStatus(state);
     const ready = canStartSpareggio(state);
     const selectedTactic = TACTICS[state.selectedTactic] || TACTICS.contropiede;
     const stats = computeStats(state);
+    const challengesHtml = this._renderChallengesHtml(state);
 
     const bracketHtml = isKnockoutBracket
       ? `
@@ -638,15 +891,23 @@ export class TabsController {
       `
       : '';
 
-    const promoAlreadyClaimed = (state.claimedSeasonPromotions || []).includes(league.id);
+    const promoAlreadyClaimed = (state.claimedCareerPromotions || []).includes(league.id);
     const promoTokStr = promoAlreadyClaimed ? '' : ` + <strong>${league.promotionTokens} 🪙</strong>`;
 
-    const goalDesc =
-      isKnockoutBracket && stageIdx === 0
+    const goalDesc = isSuperlega
+      ? `Difendi la <strong>Superlega Galattica</strong> contro <strong>${escapeHTML(round.opponent)}</strong> per salire a <strong>👑 Dinastia Lv.${dynLvl + 1}</strong> (+${Math.round(DYNASTY_INCOME_BONUS_PER_LVL * 100)}% incassi permanenti, zero reset!)${promoTokStr}!`
+      : isKnockoutBracket && stageIdx === 0
         ? `Vinci la <strong>Semifinale</strong> contro <strong>${escapeHTML(round.opponent)}</strong> per accedere alla Finale!`
-        : nextLeague
-          ? `Vinci contro <strong>${escapeHTML(round.opponent)}</strong> per salire in <strong>${escapeHTML(nextLeague.name)}</strong> (moltiplicatore <strong>x${nextLeague.multiplier}</strong>${promoTokStr})!`
-          : `Vinci la <strong>Finale Galattica</strong> contro <strong>${escapeHTML(round.opponent)}</strong>${promoTokStr} per sbloccare la Nuova Stagione ★!`;
+        : `Vinci contro <strong>${escapeHTML(round.opponent)}</strong> per salire in <strong>${escapeHTML(nextLeague.name)}</strong> (moltiplicatore <strong>x${nextLeague.multiplier}</strong>${promoTokStr})!`;
+
+    const dynastyBannerHtml = isSuperlega
+      ? `
+        <div class="passive-banner" style="border-color:rgba(250,204,21,0.45);background:rgba(250,204,21,0.08);">
+          <span>👑 <strong>Dinastia Infinita Lv.${dynLvl}</strong> → Bonus attuale: <strong>×${stats.dynastyMult.toFixed(2).replace('.', ',')}</strong></span>
+          <span>⚙️ Difficoltà partita: <strong>-${Math.min(20, dynLvl * 3)}%</strong> finestre • Cap Forza: ⚡${formatNumber(DYNASTY_POWER_CAP)}</span>
+        </div>
+      `
+      : '';
 
     const activePassives = [];
     if (stats.hasPorcotrio) activePassives.push('🔥 Istinto Killer (Porcotrio): +22% zona gol su TIRA!');
@@ -657,13 +918,44 @@ export class TabsController {
       const pct = Math.round((stats.research.matchPrecisionMult - 1) * 100);
       activePassives.push(`🦅 Occhio di Falco: +${pct}% ampiezza TIRA! e PARA!`);
     }
-    if ((stats.challengePerks?.possessionPct || 0) > 0) {
-      activePassives.push(`⚡ Perk Sprint Finale: +${Math.round(stats.challengePerks.possessionPct)}% velocità Possesso!`);
+    if ((stats.relicEffects?.matchPrecisionPct || 0) > 0) {
+      activePassives.push(`🧤 Cimeli Portiere: +${Math.round(stats.relicEffects.matchPrecisionPct)}% ampiezza TIRA!/PARA!`);
+    }
+    if ((stats.challengePerks?.possessionPct || 0) + (stats.relicEffects?.possessionPct || 0) > 0) {
+      const totPoss = Math.round((stats.challengePerks?.possessionPct || 0) + (stats.relicEffects?.possessionPct || 0));
+      activePassives.push(`⚡ Possesso potenziato: +${totPoss}% velocità caricamento!`);
     }
     const passivesHtml =
       activePassives.length > 0
         ? `<div class="passive-banner">${activePassives.map((l) => `<span>${l}</span>`).join('')}</div>`
         : '';
+
+    // Card compatta Prossimo Trofeo di Maestria della categoria attuale
+    const nextMastery = getCurrentLeagueNextMastery(state);
+    const masteryPreviewHtml =
+      nextMastery && !nextMastery.allDone && nextMastery.tier
+        ? `
+          <div class="card mastery-next-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+              <strong style="font-size:12px;color:#fde047;">
+                ${nextMastery.tier.icon} Maestria ${escapeHTML(nextMastery.league.shortName)} — ${nextMastery.tier.label}
+              </strong>
+              <span class="upgrade-lvl" style="color:#86efac;">${nextMastery.tokens > 0 ? `+${nextMastery.tokens} 🪙 • ` : ''}+${nextMastery.tier.incomePct}%</span>
+            </div>
+            <div style="font-size:10.5px;color:#cbd5e1;display:flex;justify-content:space-between;gap:8px;">
+              <span>Cassa: <strong>${formatMoney(Math.min(nextMastery.cashCur, nextMastery.req.cash))}</strong> / ${formatMoney(nextMastery.req.cash)}</span>
+              <span>Infrastr.: <strong>Lv.${nextMastery.infraCur}</strong> / ${nextMastery.req.infra}</span>
+            </div>
+            <div class="progress-track" style="height:6px;">
+              <div class="progress-fill" style="width:${Math.min(nextMastery.cashPct, nextMastery.infraPct).toFixed(1)}%;"></div>
+            </div>
+          </div>
+        `
+        : `
+          <div class="card mastery-next-card" style="border-color:rgba(56,189,248,0.45);">
+            <strong style="font-size:12px;color:#7dd3fc;">💎 Maestria ${escapeHTML(league.name)} 4/4 Completata!</strong>
+          </div>
+        `;
 
     const tacticButtons = [
       { id: 'catenaccio', icon: 'shield', label: 'Catenaccio' },
@@ -686,14 +978,17 @@ export class TabsController {
           <span style="font-size:14.5px;font-weight:900;color:#fef08a;display:inline-flex;align-items:center;gap:6px;">
             ${iconSvg('trophy', 'svg-ico')} ${escapeHTML(round.roundName)}
           </span>
-          <span class="league-pill" style="background:${league.badgeColor};">Stag.${state.seasonNumber || 1} • ${escapeHTML(league.shortName)}</span>
+          <span class="league-pill" style="background:${league.badgeColor};">
+            ${isSuperlega ? `👑 Dinastia Lv.${dynLvl}` : escapeHTML(league.shortName)}
+          </span>
         </div>
 
         ${bracketHtml}
+        ${dynastyBannerHtml}
 
         <div style="font-size:12px;color:#cbd5e1;line-height:1.38;">
           ${goalDesc}<br/>
-          <span style="color:#94a3b8;">Partita 0'–90' (28s): ferma l'anello <strong style="color:#4ade80;">TIRA!</strong> sul verde per segnare e blocca <strong style="color:#f87171;">PARA!</strong> in tempo. Pari al 90° = Rigori!</span>
+          <span style="color:#94a3b8;">Partita 0'–90' (28s): ferma <strong style="color:#4ade80;">TIRA!</strong> sul verde, aspetta che <strong style="color:#38bdf8;">PARA!</strong> diventi ciano (occhio a Finte & Ribattute da Serie A+!), e al pari decidi ai <strong>Rigori 3D</strong>!</span>
         </div>
 
         ${passivesHtml}
@@ -750,6 +1045,7 @@ export class TabsController {
           <span>${matchCtrl.active ? 'Partita in Corso...' : ready ? `Calcio d'Inizio vs ${escapeHTML(round.opponent)}!` : 'Completa la Checklist Presidente'}</span>
         </button>
       </div>
+      ${masteryPreviewHtml}
       ${challengesHtml}
     `;
   }
@@ -757,11 +1053,13 @@ export class TabsController {
   _renderSocieta(state) {
     const stats = computeStats(state);
     const profile = computePresidentProfile(state);
+    const masteryInfo = getMasteryBonuses(state);
     const prestigeReady = canPrestige(state);
     const pendingShares = getPendingPrestigeShares(state);
     const currentShares = state.prestigeShares || 0;
     const sharePct = stats.research.shareBonusPct;
-    const nextMult = 1 + ((currentShares + pendingShares) * sharePct) / 100;
+    const nextEff = Math.pow(currentShares + pendingShares, PRESTIGE_SOFTCAP_EXPONENT);
+    const nextMult = 1 + (nextEff * sharePct) / 100;
 
     const p = state.clubColors.primary;
     const s = state.clubColors.secondary;
@@ -821,20 +1119,34 @@ export class TabsController {
       `;
     }).join('');
 
+    // Bacheca 28 Trofei di Maestria (7 categorie x 4 tier)
+    const masteryRowsHtml = LEAGUES.map((lg) => {
+      const pips = MASTERY_TIERS.map((tier) => {
+        const done = Boolean(state.masteryTrophies?.[`${lg.id}:${tier.id}`]);
+        return `<span class="mastery-pip ${done ? 'done' : ''}" title="${escapeHTML(lg.name)} ${tier.label} (+${tier.incomePct}%)">${tier.icon}</span>`;
+      }).join('');
+      return `
+        <div class="mastery-cat-row">
+          <span class="mastery-cat-name">${escapeHTML(lg.shortName)}</span>
+          <div class="mastery-pips">${pips}</div>
+        </div>
+      `;
+    }).join('');
+
     this.container.innerHTML = `
       <!-- PROFILO PRESIDENTE & ALBUM DEL CLUB -->
       <div class="card president-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
           <div>
             <div style="font-size:10px;font-weight:900;color:#93c5fd;text-transform:uppercase;letter-spacing:0.5px;">
-              Livello Presidente • Stagione ${state.seasonNumber || 1}
+              Profilo Presidente • v4.5 Dynasty
             </div>
             <div style="font-size:14.5px;font-weight:900;color:#fde047;">
               Lv.${profile.level} — ${escapeHTML(profile.title)}
             </div>
           </div>
           <span class="upgrade-lvl" style="color:#fde047;background:rgba(250,204,21,0.18);">
-            ${profile.stars > 0 ? `★×${profile.stars} (×${stats.seasonMult})` : 'Stagione 1'}
+            ${profile.dynastyLevel > 0 ? `👑 Lv.${profile.dynastyLevel} (×${stats.dynastyMult.toFixed(1).replace('.', ',')})` : 'Scalata in corso'}
           </span>
         </div>
         <div class="progress-track" style="height:7px;">
@@ -845,36 +1157,43 @@ export class TabsController {
           <span>Totale: ${formatNumber(profile.xp)} XP</span>
         </div>
         <div class="album-grid">
-          <div class="album-pill">🏆 Trofei <strong>${profile.trophies}/${profile.totalTrophies}</strong></div>
+          <div class="album-pill">🏆 Maestria <strong>${profile.masteryCount}/${profile.totalMastery}</strong></div>
           <div class="album-pill">🌟 Segreti <strong>${profile.secrets}/${profile.totalSecrets}</strong></div>
           <div class="album-pill">🏅 Sfide <strong>${profile.challenges}/${profile.totalChallenges}</strong></div>
-          <div class="album-pill">🐹 Mascotte <strong>Polpetta</strong></div>
+          <div class="album-pill">🏺 Cimeli Leg. <strong>${profile.legendaryRelics}</strong></div>
         </div>
         <button type="button" class="cta-btn" id="btn-copy-whatsapp" style="padding:9px 12px;font-size:12.5px;background:linear-gradient(135deg,#16a34a,#059669);box-shadow:0 4px 14px rgba(16,185,129,0.3);">
           📋 Copia Scheda Club per WhatsApp
         </button>
       </div>
 
-      <!-- PRESTIGE AUTENTICO: AZIONI DEL FONDO -->
+      <!-- PRESTIGE BILANCIATO (SOFTCAP 0.58 + RECORD CARRIERA ANTI-FARMING) -->
       <div class="card" style="display:flex;flex-direction:column;gap:8px;border-color:rgba(124,58,237,0.45);">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <strong style="font-size:13.5px;display:inline-flex;align-items:center;gap:6px;">
             ${iconSvg('briefcase', 'svg-ico')} Fondo Estero (Prestige)
           </strong>
           <span class="upgrade-lvl" style="color:#fde047;background:rgba(251,191,36,0.18);">
-            ${currentShares} Azioni (×${stats.prestigeMult.toFixed(2).replace('.', ',')})
+            ${formatNumber(currentShares)} Azioni (×${stats.prestigeMult.toFixed(2).replace('.', ',')})
           </span>
         </div>
         <div style="font-size:11.5px;color:#cbd5e1;line-height:1.4;">
-          Ogni Azione dona <strong>+${sharePct}%</strong> globale permanente e <strong>+2%</strong> rendimento rosa!<br/>
-          Incassi run attuale: <strong>${formatMoney(state.runEarned || 0)}</strong> →
-          Azioni pronte: <strong id="prestige-pending-val" style="color:#4ade80;">+${pendingShares}</strong>
+          Curva bilanciata <strong>Azioni^0,58</strong> (+${sharePct}% base) su <strong>Record Incassi Carriera</strong> (<strong>${formatMoney(state.careerPrestigePeakEarned || 0)}</strong>).<br/>
+          Run attuale: <strong>${formatMoney(state.runEarned || 0)}</strong> →
+          Nuove Azioni: <strong id="prestige-pending-val" style="color:#4ade80;">+${formatNumber(pendingShares)}</strong>
           (nuovo mult. <strong>×${nextMult.toFixed(2).replace('.', ',')}</strong>).
         </div>
         <button type="button" class="cta-btn prestige-btn" id="btn-prestige" ${prestigeReady ? '' : 'disabled'}>
-          ${prestigeReady ? `🚁 Vendi al Fondo (+${pendingShares} Azioni)` : `Sblocca in Serie C o con ${formatMoney(PRESTIGE_UNLOCK_RUN_CASH)} incassati`}
+          ${prestigeReady ? `🚁 Vendi al Fondo (+${formatNumber(pendingShares)} Azioni)` : `Batti il record carriera (o ${formatMoney(PRESTIGE_UNLOCK_RUN_CASH)}) per nuove Azioni`}
         </button>
       </div>
+
+      <!-- BACHECA 28 TROFEI DI MAESTRIA -->
+      <div class="section-label">
+        <span>Trofei di Maestria (${masteryInfo.count}/${masteryInfo.total})</span>
+        <span style="color:#86efac;">+${masteryInfo.incomePct}% permanente</span>
+      </div>
+      <div class="card mastery-grid">${masteryRowsHtml}</div>
 
       <!-- RICERCHE PERMANENTI (12 IN 3 GRUPPI) -->
       <div class="section-label">
@@ -905,7 +1224,7 @@ export class TabsController {
       </div>
 
       <div class="section-label">
-        <span>Bacheca Trofei (${state.trophies.length}/${LEAGUES.length})</span>
+        <span>Coppe di Categoria (${state.trophies.length}/${LEAGUES.length})</span>
         <span>Vendite: ${state.prestigeCount}</span>
       </div>
       <div class="trophy-grid">${trophiesHtml}</div>

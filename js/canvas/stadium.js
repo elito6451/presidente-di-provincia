@@ -3,6 +3,8 @@ import {
   projectPitch,
   unprojectPitch,
   renderStadiumTheme,
+  renderPenaltyFrontal3D,
+  hitTestPenaltyGoalZone,
 } from './themes.js';
 import { renderPrestigeHelicopter } from './buildings.js';
 import { StadiumEntities } from './entities.js';
@@ -197,6 +199,53 @@ export class StadiumCanvas {
     this.entities.spawnCrowdBubble('DAI RAGAZZI!', { color: '#38bdf8' });
   }
 
+  triggerPerfectSave(nx = 0.18, ny = 0.45) {
+    this.entities.launchSaveDeflection(nx, ny);
+    this.triggerShake(6.5, 0.2);
+    this.entities.spawnTapParticles(nx, ny, true, 5);
+    this.entities.spawnFloatingText(0.28, 0.32, '✨ PARATA + RIPARTENZA!', {
+      color: '#fde047',
+      scale: 1.32,
+      duration: 1.3,
+    });
+    this.entities.spawnCrowdBubble('CHE RIFLESSO!', { color: '#fde047' });
+    this.entities.celebratePolpetta(1.4);
+  }
+
+  triggerEarlyDive(leagueIndex = 0) {
+    this.entities.launchShotToGoal('left', 0.5, { isGoal: true, leagueIndex });
+    this.triggerShake(6.5, 0.22);
+    this.entities.spawnFloatingText(0.28, 0.34, '⏱️ TUFFO IN ANTICIPO!', {
+      color: '#f87171',
+      scale: 1.26,
+      duration: 1.3,
+    });
+    this.entities.spawnCrowdBubble('TROPPO PRESTO!', { color: '#f87171' });
+  }
+
+  triggerFeintBaited(nx = 0.2, ny = 0.5) {
+    this.triggerShake(4.0, 0.14);
+    this.entities.spawnFloatingText(Math.max(0.22, nx + 0.08), Math.max(0.24, ny - 0.1), '😵 FINTA! OCCHIO!', {
+      color: '#fbbf24',
+      scale: 1.18,
+      duration: 1.0,
+    });
+  }
+
+  triggerReboundSpawn(nx = 0.18, ny = 0.48) {
+    this.entities.launchSaveDeflection(nx, ny);
+    this.triggerShake(4.2, 0.14);
+    this.entities.spawnFloatingText(0.26, 0.32, '⚡ RIBATTUTA!', {
+      color: '#fb923c',
+      scale: 1.22,
+      duration: 0.95,
+    });
+  }
+
+  hitTestPenaltyGoal(clickX, clickY) {
+    return hitTestPenaltyGoalZone(clickX, clickY, this.width, this.height);
+  }
+
   triggerPenaltyVisual(isPlayerKick, corner, scored, leagueIndex) {
     const cornerNy = corner === 'left' ? 0.39 : corner === 'right' ? 0.61 : 0.5;
     const side = isPlayerKick ? 'right' : 'left';
@@ -266,7 +315,7 @@ export class StadiumCanvas {
     this.entities.update(dt, t, { leagueIndex, onMiniGoal, isMatchActive });
   }
 
-  render(leagueIndex, t, { flashEvent, matchActions = [], clubInfo, upgrades = {}, isMatchActive = false, oppColors, polpettaReady = false }) {
+  render(leagueIndex, t, { flashEvent, matchActions = [], clubInfo, upgrades = {}, isMatchActive = false, oppColors, polpettaReady = false, penalties = null }) {
     const ctx = this.ctx;
     const w = this.width;
     const h = this.height;
@@ -280,6 +329,12 @@ export class StadiumCanvas {
       const sx = (Math.random() - 0.5) * 2 * mag;
       const sy = (Math.random() - 0.5) * 2 * mag;
       ctx.translate(sx, sy);
+    }
+
+    if (penalties) {
+      renderPenaltyFrontal3D(ctx, w, h, t, penalties, clubInfo, oppColors, leagueIndex);
+      ctx.restore();
+      return;
     }
 
     renderStadiumTheme(ctx, leagueIndex, w, h, g, t, this.entities.env, clubInfo, upgrades);

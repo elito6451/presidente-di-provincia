@@ -14,9 +14,19 @@ import {
   TACTICS,
   PRESTIGE_UNLOCK_RUN_CASH,
   PRESTIGE_SHARES_EXPONENT,
-  SEASON_BONUS_TOKENS,
+  PRESTIGE_SOFTCAP_EXPONENT,
+  DYNASTY_CASH_GROWTH,
+  DYNASTY_POWER_STEP,
+  DYNASTY_POWER_CAP,
+  DYNASTY_INFRA_STEP,
+  DYNASTY_DIFF_STEP,
+  DYNASTY_DIFF_CAP,
+  DYNASTY_INCOME_BONUS_PER_LVL,
+  DYNASTY_MILESTONE_TOKENS,
   MILESTONE_LEVELS,
   MILESTONE_TOKEN_REWARDS,
+  MASTERY_TIERS,
+  LEAGUE_MASTERY_GOALS,
   FORMATION_SLOTS_DEF,
 } from './config.js';
 import {
@@ -29,6 +39,7 @@ import {
 } from './gacha.js';
 import { getResearchEffects } from './research.js';
 import { getChallengePerks } from './challenges.js';
+import { getRelicEffects } from './expeditions.js';
 
 export function createEmptyLineup() {
   return { POR: null, DIF: null, CEN: null, ATT1: null, ATT2: null };
@@ -46,18 +57,22 @@ export function createInitialState() {
     leagueEarned: 0,
     runEarned: 0,
     runPeakBaseIncome: 0, // picco /s base della run senza boost temporanei (per costo buste anti-trucco)
+    careerPrestigePeakEarned: 0, // v4.5: record di carriera per impedire micro-prestige farming
     totalEarned: 0,
     leagueIndex: 0,
-    seasonNumber: 1,
-    seasonStars: 0,
-    seasonCompleted: false, // true quando vinci anche la Superlega Galattica
+    dynastyLevel: 0, // v4.5: Superlega Dinastia Infinita (0 = prima vittoria, 1, 2, 3... ∞)
+    claimedDynastyMilestones: {},
     europeanCupWon: false,
     upgrades: {},
     roster: [],
     lineup: createEmptyLineup(),
     discoveredSecrets: [],
     claimedCareerMilestones: {},
-    claimedSeasonPromotions: [], // v4.0: gettoni promozione erogati 1 sola volta per categoria per Stagione
+    claimedCareerPromotions: [], // v4.5: 1 volta per categoria in carriera
+    masteryTrophies: {},         // v4.5: 28 Trofei di Maestria ("leagueId:tier": true)
+    relicInventory: [],          // v4.5: Cimeli trovati dalle Spedizioni (permanenti al Prestige)
+    equippedRelics: [null, null, null], // 3 slot attivi (1 per tipo)
+    activeExpedition: null,      // { id, startedAt, endsAt }
     completedChallenges: [],
     cleanSheetStreak: 0,
     boughtIncomeUpgradeThisRun: false,
@@ -72,6 +87,8 @@ export function createInitialState() {
     sfxEnabled: true,
     boostUntil: 0,
     invasionBoostUntil: 0,
+    apeBoostUntil: 0,       // v4.5: Ape Car Sponsor Agricolo ×2,5
+    smokeTapBoostUntil: 0,  // v4.5: Nebbia Fumogeni Entusiasmo Curva ×3 tap
     polpettaBoostUntil: 0,
     polpettaCooldownUntil: 0,
     tutorialStep: 0,
@@ -227,6 +244,11 @@ export function getUpgradeMilestoneMult(level) {
   for (const m of MILESTONE_LEVELS) {
     if (level >= m) mult *= 2;
   }
+  // v4.5: Milestone ×2 infinite anche oltre Lv.100 (ogni +50 livelli: 150, 200, 250..., 0 🪙!)
+  if (level >= 150) {
+    const extra = Math.floor((level - 100) / 50);
+    mult *= Math.pow(2, extra);
+  }
   return mult;
 }
 
@@ -244,28 +266,28 @@ export function getUpgradeMilestoneInfo(level) {
     }
     prev = m;
   }
+  // Oltre Lv.100: prossima milestone ogni +50 livelli (150, 200, 250...)
+  const prevStep = Math.floor(level / 50) * 50;
+  const nextStep = prevStep + 50;
   return {
-    next: MILESTONE_LEVELS[MILESTONE_LEVELS.length - 1],
-    prev: 100,
-    pct: 100,
+    next: nextStep,
+    prev: prevStep,
+    pct: Math.min(100, Math.max(0, ((level - prevStep) / 50) * 100)),
     mult: getUpgradeMilestoneMult(level),
-    allDone: true,
+    allDone: false,
   };
 }
 
+// v4.5: Sblocco rigorosamente legato alla Categoria (rimossa ogni scorciatoia OR €!)
 export function isUpgradeUnlocked(state, upg) {
+  if (upg.unlockLeague !== undefined && (state.leagueIndex || 0) < upg.unlockLeague) {
+    return false;
+  }
   if (getUpgradeLevel(state, upg.id) > 0) return true;
   if (upg.unlockUpgrade) {
     if (getUpgradeLevel(state, upg.unlockUpgrade.id) < upg.unlockUpgrade.level) return false;
   }
-  const hasLeague = upg.unlockLeague === undefined || state.leagueIndex >= upg.unlockLeague;
-  const hasCashOr = upg.unlockRunCashOr !== undefined && state.runEarned >= upg.unlockRunCashOr;
-  if (upg.unlockLeague !== undefined && upg.unlockRunCashOr !== undefined) {
-    if (!hasLeague && !hasCashOr) return false;
-  } else if (!hasLeague) {
-    return false;
-  }
-  if (upg.unlockRunCash !== undefined && state.runEarned < upg.unlockRunCash) return false;
+  if (upg.unlockRunCash !== undefined && (state.runEarned || 0) < upg.unlockRunCash) return false;
   return true;
 }
 
@@ -332,7 +354,7 @@ export function getBulkUpgradePlan(state, upgrade, mode = state.buyMode || '1x')
   };
 }
 
-// Formula doppia v4.0: max(base * 1.50^n, runPeakBaseIncome * K) con sconti Sconto Procuratori + Solo Giovani!
+// Formula doppia v4.5: max(base * 1.50^n, runPeakBaseIncome * K) con sconti Procuratori + Solo Giovani + Valigetta!
 export function getPackCost(state, pack, stats = null) {
   const opened = (state.packPurchases && state.packPurchases[pack.id]) || 0;
   const expCost = pack.baseCost * Math.pow(PACK_COST_GROWTH, opened);
@@ -343,8 +365,10 @@ export function getPackCost(state, pack, stats = null) {
 
   const research = stats?.research || getResearchEffects(state);
   const perks = stats?.challengePerks || getChallengePerks(state, research.challengePerkMult);
+  const relicFx = stats?.relicEffects || getRelicEffects(state);
   const challengeDiscount = Math.max(0.75, 1 - (perks.packDiscountPct || 0) / 100);
-  const discountMult = (research.packCostMult || 1) * challengeDiscount;
+  const relicDiscount = Math.max(0.70, 1 - (relicFx.packDiscountPct || 0) / 100);
+  const discountMult = (research.packCostMult || 1) * challengeDiscount * relicDiscount;
   return Math.max(50, Math.floor(rawCost * discountMult));
 }
 
@@ -373,6 +397,22 @@ export function getInvasionBoostRemainingSec(state, now = Date.now()) {
   return Math.max(0, ((state.invasionBoostUntil || 0) - now) / 1000);
 }
 
+export function isApeBoostActive(state, now = Date.now()) {
+  return (state.apeBoostUntil || 0) > now;
+}
+
+export function getApeBoostRemainingSec(state, now = Date.now()) {
+  return Math.max(0, ((state.apeBoostUntil || 0) - now) / 1000);
+}
+
+export function isSmokeTapBoostActive(state, now = Date.now()) {
+  return (state.smokeTapBoostUntil || 0) > now;
+}
+
+export function getSmokeTapBoostRemainingSec(state, now = Date.now()) {
+  return Math.max(0, ((state.smokeTapBoostUntil || 0) - now) / 1000);
+}
+
 export function isPolpettaBoostActive(state, now = Date.now()) {
   return (state.polpettaBoostUntil || 0) > now;
 }
@@ -389,14 +429,28 @@ export function petPolpetta(state, now = Date.now()) {
   if (!isPolpettaReady(state, now)) {
     return { boosted: false, cooldownLeft: Math.ceil((state.polpettaCooldownUntil - now) / 1000) };
   }
+  const relicFx = getRelicEffects(state);
+  const cdMs = relicFx.polpettaCooldownMs || POLPETTA_COOLDOWN_MS;
   state.polpettaBoostUntil = now + POLPETTA_BOOST_DURATION_MS;
-  state.polpettaCooldownUntil = now + POLPETTA_COOLDOWN_MS;
-  return { boosted: true, cooldownLeft: 0 };
+  state.polpettaCooldownUntil = now + cdMs;
+  return { boosted: true, cooldownLeft: 0, mult: relicFx.polpettaMult || 1.25 };
+}
+
+// v4.5: Calcolo Azioni Prestige legato al record di carriera (zero micro-prestige farming!)
+export function rawSharesForEarned(earned) {
+  if (!Number.isFinite(earned) || earned < PRESTIGE_UNLOCK_RUN_CASH) return 0;
+  return Math.floor(Math.pow(earned / PRESTIGE_UNLOCK_RUN_CASH, PRESTIGE_SHARES_EXPONENT));
+}
+
+export function getEffectivePrestigeShares(shares) {
+  if (!Number.isFinite(shares) || shares <= 0) return 0;
+  return Math.pow(shares, PRESTIGE_SOFTCAP_EXPONENT);
 }
 
 export function getPendingPrestigeShares(state) {
-  if ((state.runEarned || 0) < PRESTIGE_UNLOCK_RUN_CASH) return 0;
-  return Math.floor(Math.pow(state.runEarned / PRESTIGE_UNLOCK_RUN_CASH, PRESTIGE_SHARES_EXPONENT));
+  const curShares = rawSharesForEarned(state.runEarned || 0);
+  const peakShares = rawSharesForEarned(state.careerPrestigePeakEarned || 0);
+  return Math.max(0, curShares - peakShares);
 }
 
 export function canPrestige(state) {
@@ -404,10 +458,107 @@ export function canPrestige(state) {
   return pending >= 1 && (state.leagueIndex >= 2 || (state.runEarned || 0) >= PRESTIGE_UNLOCK_RUN_CASH);
 }
 
-// Soglia cassa scalata per Stagione 2+: ×5^(stagione - 1)
+// --- DINASTIA INFINITA & MAESTRIA 28 TROFEI ---
+
 export function getLeagueUnlockCash(state, league) {
-  const season = Math.max(1, state.seasonNumber || 1);
-  return Math.floor(league.unlockCash * Math.pow(5, season - 1));
+  if (league.index === LEAGUES.length - 1) {
+    const d = Math.max(0, state.dynastyLevel || 0);
+    return Math.floor(league.unlockCash * Math.pow(DYNASTY_CASH_GROWTH, d));
+  }
+  return league.unlockCash;
+}
+
+export function getLeagueMinSquadPower(state, league) {
+  if (league.index === LEAGUES.length - 1) {
+    const d = Math.max(0, state.dynastyLevel || 0);
+    return Math.min(DYNASTY_POWER_CAP, league.minSquadPower + d * DYNASTY_POWER_STEP);
+  }
+  return league.minSquadPower;
+}
+
+export function getLeagueMinInfraLevels(state, league) {
+  if (league.index === LEAGUES.length - 1) {
+    const d = Math.max(0, state.dynastyLevel || 0);
+    return league.minInfraLevels + d * DYNASTY_INFRA_STEP;
+  }
+  return league.minInfraLevels;
+}
+
+export function getDynastyDifficultyMult(state) {
+  if ((state.leagueIndex || 0) < LEAGUES.length - 1) return 1.0;
+  const d = Math.max(0, state.dynastyLevel || 0);
+  return Math.max(1 - DYNASTY_DIFF_CAP, 1 - d * DYNASTY_DIFF_STEP);
+}
+
+export function getMasteryBonuses(state) {
+  let incomePct = 0;
+  let tapPct = 0;
+  let count = 0;
+  const map = state.masteryTrophies || {};
+  for (const lg of LEAGUES) {
+    const goals = LEAGUE_MASTERY_GOALS[lg.id];
+    if (!goals) continue;
+    for (const tier of MASTERY_TIERS) {
+      if (map[`${lg.id}:${tier.id}`]) {
+        count += 1;
+        incomePct += tier.incomePct;
+        const g = goals[tier.id];
+        if (g && g.extraTapPct) tapPct += g.extraTapPct;
+      }
+    }
+  }
+  return { incomePct, tapPct, count, total: LEAGUES.length * MASTERY_TIERS.length };
+}
+
+export function getCurrentLeagueNextMastery(state) {
+  const lg = LEAGUES[state.leagueIndex] || LEAGUES[0];
+  const goals = LEAGUE_MASTERY_GOALS[lg.id];
+  if (!goals) return null;
+  const map = state.masteryTrophies || {};
+  const infraCur = getTotalInfraLevels(state);
+  const cashCur = state.leagueEarned || 0;
+  for (const tier of MASTERY_TIERS) {
+    const key = `${lg.id}:${tier.id}`;
+    if (!map[key]) {
+      const req = goals[tier.id];
+      return {
+        league: lg,
+        tier,
+        req,
+        infraCur,
+        cashCur,
+        infraPct: Math.min(100, (infraCur / Math.max(1, req.infra)) * 100),
+        cashPct: Math.min(100, (cashCur / Math.max(1, req.cash)) * 100),
+        tokens: req.tokensOverride !== undefined ? req.tokensOverride : tier.tokens,
+      };
+    }
+  }
+  return { league: lg, allDone: true };
+}
+
+export function evaluateMasteryTrophies(state) {
+  const lg = LEAGUES[state.leagueIndex];
+  if (!lg) return [];
+  const goals = LEAGUE_MASTERY_GOALS[lg.id];
+  if (!goals) return [];
+  if (!state.masteryTrophies) state.masteryTrophies = {};
+
+  const infraCur = getTotalInfraLevels(state);
+  const cashCur = state.leagueEarned || 0;
+  const newly = [];
+
+  for (const tier of MASTERY_TIERS) {
+    const key = `${lg.id}:${tier.id}`;
+    if (state.masteryTrophies[key]) continue;
+    const req = goals[tier.id];
+    if (req && infraCur >= req.infra && cashCur >= req.cash) {
+      state.masteryTrophies[key] = true;
+      const tokens = req.tokensOverride !== undefined ? req.tokensOverride : tier.tokens;
+      if (tokens > 0) addGoldTokens(state, tokens);
+      newly.push({ league: lg, tier, req, tokens });
+    }
+  }
+  return newly;
 }
 
 export function computeStats(state, now = Date.now()) {
@@ -438,7 +589,8 @@ export function computeStats(state, now = Date.now()) {
   let hasVavelocino = false;
 
   const shares = state.prestigeShares || 0;
-  const rosterShareBoost = 1 + shares * 0.02;
+  const effectiveShares = getEffectivePrestigeShares(shares); // v4.5: softcap 0,58 anche su rosterShareBoost!
+  const rosterShareBoost = 1 + effectiveShares * 0.02;
 
   const applyBonus = (type, val) => {
     if (type === 'tapPct') rosterTapPct += val * rosterShareBoost;
@@ -463,28 +615,53 @@ export function computeStats(state, now = Date.now()) {
   }
 
   const challengePerks = getChallengePerks(state, research.challengePerkMult);
-  const totalSquadPowerPct = squadPowerPct + (challengePerks.squadPowerPct || 0);
+  const masteryBonuses = getMasteryBonuses(state);
+  const relicEffects = getRelicEffects(state);
+
+  const totalSquadPowerPct =
+    squadPowerPct + (challengePerks.squadPowerPct || 0) + (relicEffects.squadPowerPct || 0);
   const squadPower = Math.round(
     rawSquadPower * (1 + totalSquadPowerPct / 100) * (research.squadPowerMult || 1)
   );
-  const prestigeMult = 1 + (shares * research.shareBonusPct) / 100;
-  const seasonMult = Math.pow(2, state.seasonStars || 0); // ×2 (+100%) per ogni Stella d'Oro ★!
+
+  // Softcap 0,58 sul moltiplicatore Prestige + Dinastia additiva (+20%/liv) + Maestria + Cimeli!
+  const prestigeMult = 1 + (effectiveShares * research.shareBonusPct) / 100;
+  const dynastyMult = 1 + (state.dynastyLevel || 0) * DYNASTY_INCOME_BONUS_PER_LVL;
+  const masteryIncomeMult = 1 + (masteryBonuses.incomePct || 0) / 100;
+  const masteryTapMult = 1 + (masteryBonuses.tapPct || 0) / 100;
+  const relicIncomeMult = 1 + (relicEffects.incomePct || 0) / 100;
+  const relicTapMult = 1 + (relicEffects.tapPct || 0) / 100;
   const challengeIncomeMult = 1 + (challengePerks.globalIncomePct || 0) / 100;
   const challengeTapMult = 1 + (challengePerks.tapPct || 0) / 100;
   const marketingMult = research.globalIncomeMult || 1;
   const leagueMult = league.multiplier;
 
   const permanentMult =
-    prestigeMult * seasonMult * challengeIncomeMult * marketingMult * leagueMult;
+    prestigeMult *
+    dynastyMult *
+    masteryIncomeMult *
+    challengeIncomeMult *
+    marketingMult *
+    leagueMult;
 
   const adBoostMult = isBoostActive(state, now) ? 2 : 1;
   const invBoostMult = isInvasionBoostActive(state, now) ? 3 : 1;
-  const polpettaMult = isPolpettaBoostActive(state, now) ? 1.25 : 1;
-  const boostMult = adBoostMult * invBoostMult * polpettaMult;
+  const apeBoostMult = isApeBoostActive(state, now) ? 2.5 : 1;
+  const smokeTapMult = isSmokeTapBoostActive(state, now) ? 3 : 1;
+  const polpettaMult = isPolpettaBoostActive(state, now) ? (relicEffects.polpettaMult || 1.25) : 1;
+  const boostMult = adBoostMult * invBoostMult * apeBoostMult * polpettaMult;
   const globalMult = permanentMult * boostMult;
 
-  const baseIncomeNoTempBoosts = baseIncome * (1 + rosterIncomePct / 100) * permanentMult;
-  const tapValue = baseTap * (1 + rosterTapPct / 100) * challengeTapMult * globalMult;
+  const baseIncomeNoTempBoosts =
+    baseIncome * (1 + rosterIncomePct / 100) * relicIncomeMult * permanentMult;
+  const tapValue =
+    baseTap *
+    (1 + rosterTapPct / 100) *
+    challengeTapMult *
+    masteryTapMult *
+    relicTapMult *
+    smokeTapMult *
+    globalMult;
   const incomePerSec = baseIncomeNoTempBoosts * boostMult;
   const critChance = Math.min(0.68, 0.06 + rosterCritPct / 100);
   const critMultiplier = research.critMultiplier;
@@ -496,6 +673,8 @@ export function computeStats(state, now = Date.now()) {
     league,
     research,
     challengePerks,
+    masteryBonuses,
+    relicEffects,
     starterCount: starterPlayers.length,
     baseTap,
     baseIncome,
@@ -506,14 +685,19 @@ export function computeStats(state, now = Date.now()) {
     rosterMatchSec: extraMatchSec,
     squadPower,
     infraLevels,
+    effectiveShares,
     prestigeMult,
-    seasonMult,
+    dynastyMult,
+    masteryIncomeMult,
+    relicIncomeMult,
     challengeMult: challengeIncomeMult,
     challengeTapMult,
     marketingMult,
     leagueMult,
     adBoostMult,
     invBoostMult,
+    apeBoostMult,
+    smokeTapMult,
     polpettaMult,
     boostMult,
     tapValue,
@@ -548,11 +732,11 @@ export function getChecklistStatus(state) {
   const cashOk = cashCur >= cashReq;
 
   const squadCur = stats.squadPower;
-  const squadReq = league.minSquadPower;
+  const squadReq = getLeagueMinSquadPower(state, league);
   const squadOk = squadCur >= squadReq;
 
   const infraCur = stats.infraLevels;
-  const infraReq = league.minInfraLevels;
+  const infraReq = getLeagueMinInfraLevels(state, league);
   const infraOk = infraCur >= infraReq;
 
   return {
@@ -649,6 +833,13 @@ export function buyUpgradeBulk(state, upgradeId, mode = state.buyMode || '1x') {
       }
     }
   }
+  // v4.5: Milestone ×2 ogni +50 livelli oltre Lv.100 (150, 200, 250...) con 0 🪙
+  if (newLevel >= 150) {
+    const startStep = Math.max(150, (Math.floor(oldLevel / 50) + 1) * 50);
+    for (let m = startStep; m <= newLevel; m += 50) {
+      newMilestones.push(m);
+    }
+  }
   if (tokensAwarded > 0) addGoldTokens(state, tokensAwarded);
 
   syncPeakIncomeTracking(state, computeStats(state));
@@ -677,17 +868,22 @@ export function activateInvasionBoost(state, durationMs = INVASION_BOOST_DURATIO
   state.invasionBoostUntil = Math.min(now + durationMs * 2, base + durationMs);
 }
 
+export function activateApeBoost(state, durationMs = 20000) {
+  const now = Date.now();
+  const base = (state.apeBoostUntil || 0) > now ? state.apeBoostUntil : now;
+  state.apeBoostUntil = Math.min(now + durationMs * 2, base + durationMs);
+}
+
+export function activateSmokeTapBoost(state, durationMs = 15000) {
+  const now = Date.now();
+  const base = (state.smokeTapBoostUntil || 0) > now ? state.smokeTapBoostUntil : now;
+  state.smokeTapBoostUntil = Math.min(now + durationMs * 2, base + durationMs);
+}
+
 export function canStartSpareggio(state) {
   const league = LEAGUES[state.leagueIndex];
   if (!league) return false;
-  if (state.leagueIndex === LEAGUES.length - 1 && state.seasonCompleted) {
-    return false;
-  }
   return getChecklistStatus(state).allReady;
-}
-
-export function canStartNewSeason(state) {
-  return state.leagueIndex === LEAGUES.length - 1 && Boolean(state.seasonCompleted);
 }
 
 export function awardLeagueVictory(state) {
@@ -698,7 +894,6 @@ export function awardLeagueVictory(state) {
 
   if (totalRounds > 1 && stageIdx < totalRounds - 1) {
     state.playoffStage = stageIdx + 1;
-    // Semifinale superata: premio prestigio sportivo (i Gettoni promozione arrivano vincendo la categoria!)
     return {
       promoted: false,
       finalCup: false,
@@ -710,11 +905,11 @@ export function awardLeagueVictory(state) {
     };
   }
 
-  // v4.0: Gettoni promozione erogati 1 sola volta per categoria per Stagione (anti-farming micro-prestige!)
-  if (!Array.isArray(state.claimedSeasonPromotions)) state.claimedSeasonPromotions = [];
+  // v4.5: Gettoni promozione 1 sola volta in carriera per categoria
+  if (!Array.isArray(state.claimedCareerPromotions)) state.claimedCareerPromotions = [];
   let promoTokens = 0;
-  if (!state.claimedSeasonPromotions.includes(league.id)) {
-    state.claimedSeasonPromotions.push(league.id);
+  if (!state.claimedCareerPromotions.includes(league.id)) {
+    state.claimedCareerPromotions.push(league.id);
     promoTokens = league.promotionTokens || 4;
     addGoldTokens(state, promoTokens);
   }
@@ -740,16 +935,30 @@ export function awardLeagueVictory(state) {
     };
   }
 
-  // Superlega Galattica vinta -> sblocca Nuova Stagione (★)!
-  state.seasonCompleted = true;
+  // v4.5: SUPERLEGA DINASTIA INFINITA (NO RESET!) — resti in Superlega e sali di Dinastia Lv.!
+  state.dynastyLevel = (state.dynastyLevel || 0) + 1;
   state.playoffStage = 0;
+  state.leagueEarned = 0;
+
+  if (!state.claimedDynastyMilestones) state.claimedDynastyMilestones = {};
+  let dynastyTokens = 0;
+  const d = state.dynastyLevel;
+  const mTok = DYNASTY_MILESTONE_TOKENS[d] || (d >= 20 && d % 5 === 0 ? 25 : 0);
+  if (mTok > 0 && !state.claimedDynastyMilestones[String(d)]) {
+    state.claimedDynastyMilestones[String(d)] = true;
+    dynastyTokens = mTok;
+    addGoldTokens(state, dynastyTokens);
+  }
+
   return {
     promoted: false,
     finalCup: true,
     semifinalWon: false,
+    dynastyLevel: state.dynastyLevel,
     newLeague: league,
     trophyName: league.trophyName,
-    tokensAwarded: promoTokens,
+    tokensAwarded: promoTokens + dynastyTokens,
+    dynastyTokens,
   };
 }
 
@@ -780,19 +989,24 @@ function _buildPersistentCarry(state) {
     trophies: [...(state.trophies || [])],
     discoveredSecrets: [...(state.discoveredSecrets || [])],
     claimedCareerMilestones: { ...(state.claimedCareerMilestones || {}) },
-    claimedSeasonPromotions: [...(state.claimedSeasonPromotions || [])],
+    claimedCareerPromotions: [...(state.claimedCareerPromotions || [])],
+    claimedDynastyMilestones: { ...(state.claimedDynastyMilestones || {}) },
+    masteryTrophies: { ...(state.masteryTrophies || {}) },
+    relicInventory: (state.relicInventory || []).map((r) => ({ ...r })),
+    equippedRelics: [...(state.equippedRelics || [null, null, null])],
+    activeExpedition: state.activeExpedition ? { ...state.activeExpedition } : null,
     completedChallenges: [...(state.completedChallenges || [])],
     cleanSheetStreak: state.cleanSheetStreak || 0,
     research: { ...(state.research || {}) },
     goldTokens: state.goldTokens || 0,
     prestigeCount: state.prestigeCount || 0,
     prestigeShares: state.prestigeShares || 0,
-    seasonNumber: state.seasonNumber || 1,
-    seasonStars: state.seasonStars || 0,
+    careerPrestigePeakEarned: Math.max(state.careerPrestigePeakEarned || 0, state.runEarned || 0),
+    dynastyLevel: state.dynastyLevel || 0,
     europeanCupWon: Boolean(state.europeanCupWon),
     musicEnabled: state.musicEnabled,
     sfxEnabled: state.sfxEnabled,
-    tutorialStep: 4,
+    tutorialStep: 6,
     stats: { ...state.stats },
     totalEarned: state.totalEarned,
   };
@@ -826,37 +1040,9 @@ export function performPrestige(state) {
   Object.assign(state, fresh, carry, {
     prestigeCount: nextPrestige,
     prestigeShares: nextShares,
-    seasonCompleted: false,
   });
   _applyClubLegacyStart(state);
   return { ok: true, gainedShares, totalShares: nextShares };
-}
-
-export function startNewSeason(state) {
-  if (!canStartNewSeason(state)) return { ok: false };
-
-  const gainedShares = getPendingPrestigeShares(state);
-  const bonusTokens = SEASON_BONUS_TOKENS;
-  const carry = _buildPersistentCarry(state);
-
-  const fresh = createInitialState();
-  Object.assign(state, fresh, carry, {
-    seasonNumber: carry.seasonNumber + 1,
-    seasonStars: carry.seasonStars + 1,
-    seasonCompleted: false,
-    claimedSeasonPromotions: [], // Nuova Stagione -> tutte le 7 promozioni tornano a dare Gettoni!
-    goldTokens: carry.goldTokens + bonusTokens,
-    prestigeShares: carry.prestigeShares + gainedShares,
-  });
-  _applyClubLegacyStart(state);
-
-  return {
-    ok: true,
-    seasonNumber: state.seasonNumber,
-    seasonStars: state.seasonStars,
-    gainedShares,
-    bonusTokens,
-  };
 }
 
 export function resetStateInPlace(state) {

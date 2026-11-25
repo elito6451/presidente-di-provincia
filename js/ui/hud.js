@@ -7,18 +7,21 @@ import {
   getInvasionBoostRemainingSec,
   isPolpettaBoostActive,
   getPolpettaBoostRemainingSec,
+  isApeBoostActive,
+  getApeBoostRemainingSec,
+  isSmokeTapBoostActive,
+  getSmokeTapBoostRemainingSec,
   canStartSpareggio,
-  canStartNewSeason,
   canPrestige,
   getTotalFreePacks,
   syncPeakIncomeTracking,
 } from '../state.js';
+import { getExpeditionStatus } from '../expeditions.js';
 
 function formatClubDisplayName(state) {
-  const stars = state.seasonStars || 0;
-  if (stars <= 0) return state.clubName;
-  const starBadge = stars <= 3 ? '★'.repeat(stars) : `★×${stars}`;
-  return `${state.clubName} ${starBadge}`;
+  const dyn = state.dynastyLevel || 0;
+  if (dyn <= 0) return state.clubName;
+  return `${state.clubName} 👑×${dyn}`;
 }
 
 export class HudController {
@@ -28,6 +31,8 @@ export class HudController {
     this.elIncome = document.getElementById('hud-income');
     this.elTap = document.getElementById('hud-tap');
     this.elInvBoost = document.getElementById('hud-inv-boost');
+    this.elApeBoost = document.getElementById('hud-ape-boost');
+    this.elSmokeBoost = document.getElementById('hud-smoke-boost');
     this.elPolpettaBoost = document.getElementById('hud-polpetta-boost');
     this.elLeague = document.getElementById('hud-league');
     this.elBoostBtn = document.getElementById('btn-boost');
@@ -97,6 +102,24 @@ export class HudController {
       this.elInvBoost?.classList.add('hidden');
     }
 
+    // Boost ×2,5 da Ape Car (Sponsor Agricolo)
+    if (isApeBoostActive(state, now)) {
+      const rem = Math.ceil(getApeBoostRemainingSec(state, now));
+      this.elApeBoost?.classList.remove('hidden');
+      this._setText('apeB', this.elApeBoost, `🛺 ×2,5 ${rem}s`);
+    } else {
+      this.elApeBoost?.classList.add('hidden');
+    }
+
+    // Boost ×3 Tap da Fumogeni / Bi-Zona
+    if (isSmokeTapBoostActive(state, now)) {
+      const rem = Math.ceil(getSmokeTapBoostRemainingSec(state, now));
+      this.elSmokeBoost?.classList.remove('hidden');
+      this._setText('smokeB', this.elSmokeBoost, `💨 ×3tap ${rem}s`);
+    } else {
+      this.elSmokeBoost?.classList.add('hidden');
+    }
+
     // Boost morale ×1,25 da Polpetta
     if (isPolpettaBoostActive(state, now)) {
       const rem = Math.ceil(getPolpettaBoostRemainingSec(state, now));
@@ -106,7 +129,7 @@ export class HudController {
       this.elPolpettaBoost?.classList.add('hidden');
     }
 
-    // Chip Club personalizzato (con Stelle d'Oro ★ delle Stagioni)
+    // Chip Club personalizzato (con badge Dinastia 👑×N)
     const displayClub = formatClubDisplayName(state);
     this._setText('clubName', this.elClubName, displayClub);
     const swatchCss = `linear-gradient(90deg, ${state.clubColors.primary} 50%, ${state.clubColors.secondary} 50%)`;
@@ -145,14 +168,16 @@ export class HudController {
     }
 
     const freeCount = getTotalFreePacks(state);
-    if (freeCount > 0) {
+    const expStatus = getExpeditionStatus(state, now);
+    const expReady = Boolean(expStatus && expStatus.ready);
+    if (freeCount > 0 || expReady) {
       this.elBadgeScouting.classList.remove('hidden');
-      this._setText('freeBadge', this.elBadgeScouting, String(freeCount));
+      this._setText('freeBadge', this.elBadgeScouting, expReady ? '🗺️' : String(freeCount));
     } else {
       this.elBadgeScouting.classList.add('hidden');
     }
 
-    if ((canStartSpareggio(state) || canStartNewSeason(state)) && !matchCtrl.active) {
+    if (canStartSpareggio(state) && !matchCtrl.active) {
       this.elBadgeSpareggio.classList.remove('hidden');
     } else {
       this.elBadgeSpareggio.classList.add('hidden');

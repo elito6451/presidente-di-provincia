@@ -3,11 +3,40 @@ import { escapeHTML, formatMoney } from './format.js';
 import { formatPlayerBonus, getPlayerEffectivePower } from './gacha.js';
 import { audio } from './audio.js';
 
+const VAR_CHECK_LINES = [
+  'Analisi millimetriche col righello di legno...',
+  'L\'arbitro controlla il monitor in streaming 3G...',
+  'Sala VAR in linea dal bar del circolo Arci...',
+  'Zoom 400x sugli scarpini infangati...',
+  'Controllo telecamera del balcone della signora Maria...',
+];
+
+// 15 battute comiche VAR (inclusi 3 finti annullamenti in 2 tempi!)
 const VAR_VERDICTS = [
   {
     headline: 'GOL CONVALIDATO!',
-    sub: 'Il monitor VAR era spento. Si gioca!',
+    sub: 'Il monitor VAR era spento: si fida della curva!',
     bonus: false,
+  },
+  {
+    headline: 'GOL CONVALIDATO!',
+    sub: 'Polpetta aveva staccato la spina della sala VAR per fare spazio alla ruota!',
+    bonus: true,
+  },
+  {
+    headline: 'GOL CONVALIDATO!',
+    sub: 'Il monitor era sintonizzato su Sky Calcio Show: gol buono sulla fiducia!',
+    bonus: false,
+  },
+  {
+    headline: 'GOL CONVALIDATO!',
+    sub: 'Connessione 3G in buffering al 98%: l\'arbitro indica il centrocampo!',
+    bonus: false,
+  },
+  {
+    headline: 'GOL + BONUS STILE!',
+    sub: 'Righello di legno leggermente storto: fuorigioco invisibile, vale il gol!',
+    bonus: true,
   },
   {
     headline: 'GOL CONVALIDATO!',
@@ -19,7 +48,80 @@ const VAR_VERDICTS = [
     sub: 'La sala VAR applaude in piedi: premio spettacolo in cassa!',
     bonus: true,
   },
+  {
+    headline: 'GOL CONVALIDATO!',
+    sub: 'Il guardalinee stava addentando una salamella: bandierina giù!',
+    bonus: false,
+  },
+  {
+    headline: 'GOL CONVALIDATO!',
+    sub: 'L\'operatore VAR è cugino del paninaro: "Gol pulitissimo, Presidente!"',
+    bonus: false,
+  },
+  {
+    headline: 'GOL + BONUS STILE!',
+    sub: 'Rete così bella che pure il portiere avversario firma la convalida!',
+    bonus: true,
+  },
+  {
+    headline: 'GOL CONVALIDATO!',
+    sub: 'Il pallone era sgonfio di 2 bar ma la linea l\'ha passata col cuore!',
+    bonus: false,
+  },
+  {
+    headline: 'GOL CONVALIDATO!',
+    sub: 'Il drone VAR ha finito la batteria sul più bello: si convalida!',
+    bonus: false,
+  },
+  // 3 Finti Annullamenti in 2 tempi!
+  {
+    fakeCancel: true,
+    fakeHeadline: 'ANNULLATO?!',
+    fakeSub: 'Segnalato presunto fuorigioco di un baffo...',
+    headline: 'SCHERZAVO! È GOL + BONUS STILE!',
+    sub: '😂 Era l\'ombra del riflettore! Curva in delirio e premio cassa!',
+    bonus: true,
+  },
+  {
+    fakeCancel: true,
+    fakeHeadline: 'ANNULLATO?!',
+    fakeSub: 'L\'arbitro fa il gesto del fallo di mano...',
+    headline: 'SCHERZAVO! È GOL + BONUS STILE!',
+    sub: '😂 Stava solo scacciando una zanzara! Gol buonissimo + premio!',
+    bonus: true,
+  },
+  {
+    fakeCancel: true,
+    fakeHeadline: 'ANNULLATO?!',
+    fakeSub: 'Dalla sala VAR urlano "NOOOO!"...',
+    headline: 'SCHERZAVO! È GOL + BONUS STILE!',
+    sub: '😂 Gli era caduto il caffè sulla tastiera! Gol convalidato!',
+    bonus: true,
+  },
 ];
+
+function getVarRefereeSvg() {
+  return `
+    <svg viewBox="0 0 88 74" class="var-ref-svg" aria-hidden="true">
+      <!-- Testa arbitro -->
+      <circle cx="44" cy="18" r="11" fill="#fed7aa" stroke="#0f172a" stroke-width="2"/>
+      <path d="M33 15 C34 8 40 6 44 6 C48 6 54 8 55 15 Z" fill="#1e293b"/>
+      <circle cx="40.5" cy="18" r="1.5" fill="#0f172a"/>
+      <circle cx="47.5" cy="18" r="1.5" fill="#0f172a"/>
+      <path d="M40 23 Q44 25 48 23" fill="none" stroke="#7c2d12" stroke-width="1.6" stroke-linecap="round"/>
+      <!-- Maglia a strisce arbitro -->
+      <path d="M27 64 C28 42 35 33 44 33 C53 33 60 42 61 64 Z" fill="#facc15" stroke="#0f172a" stroke-width="2"/>
+      <rect x="37" y="34" width="3.5" height="29" fill="#0f172a"/>
+      <rect x="47.5" y="34" width="3.5" height="29" fill="#0f172a"/>
+      <!-- Rettangolo TV VAR luminoso disegnato dalle mani! -->
+      <g class="var-tv-gesture">
+        <rect x="24" y="34" width="40" height="24" rx="4" fill="rgba(56,189,248,0.18)" stroke="#38bdf8" stroke-width="2.6" stroke-dasharray="6 3"/>
+        <circle cx="24" cy="46" r="4.5" fill="#fed7aa" stroke="#0f172a" stroke-width="1.5"/>
+        <circle cx="64" cy="46" r="4.5" fill="#fed7aa" stroke="#0f172a" stroke-width="1.5"/>
+      </g>
+    </svg>
+  `;
+}
 
 export class CutsceneManager {
   constructor() {
@@ -79,7 +181,6 @@ export class CutsceneManager {
 
     audio.playWalkoutRiser();
 
-    // Fase 1 (0.85s): ★ LEGGENDA SEGRETA ★
     this._timers.push(
       setTimeout(() => {
         const c = document.getElementById('walkout-center');
@@ -91,7 +192,6 @@ export class CutsceneManager {
       }, 850)
     );
 
-    // Fase 2 (1.75s): Ruolo & Maglia + screen shake!
     this._timers.push(
       setTimeout(() => {
         const c = document.getElementById('walkout-center');
@@ -104,7 +204,6 @@ export class CutsceneManager {
       }, 1750)
     );
 
-    // Fase 3 (2.55s): Esplosione particellare & Carta Prismatica Segreta
     const revealCard = () => {
       const c = document.getElementById('walkout-center');
       if (!c) return;
@@ -142,7 +241,6 @@ export class CutsceneManager {
 
     this._timers.push(setTimeout(revealCard, 2550));
 
-    // Toccare salta direttamente al reveal (o chiude se già al reveal)
     const openedAt = performance.now();
     this.root.querySelector('#walkout-box')?.addEventListener('click', () => {
       if (performance.now() - openedAt < 300) return;
@@ -155,7 +253,7 @@ export class CutsceneManager {
   }
 
   /**
-   * 2. PRIMA PAGINA "GAZZETTA DELLA PROVINCIA" (2.8s, cliccabile per saltare)
+   * 2. PRIMA PAGINA "GAZZETTA DELLA PROVINCIA"
    */
   playGazzettaFrontPage({ clubName, headline, subline, tag = 'EDIZIONE STRAORDINARIA' }, onDone) {
     this.close();
@@ -192,7 +290,7 @@ export class CutsceneManager {
   }
 
   /**
-   * 3. ELICOTTERO DEL FONDO ESTERO (2.6s sul Canvas visibile + flash riavvolgimento)
+   * 3. ELICOTTERO DEL FONDO ESTERO
    */
   playHelicopterPrestige({ gainedShares, totalShares, stadium, onMidFlash, onDone }) {
     this.close();
@@ -216,7 +314,6 @@ export class CutsceneManager {
     stadium.startHelicopterAnimation(2.6);
     audio.playHelicopter();
 
-    // Banner trasparente in basso così lo stadio Canvas con l'elicottero resta 100% visibile!
     this.root.innerHTML = `
       <div class="heli-overlay" id="heli-overlay">
         <div class="heli-flash" id="heli-flash"></div>
@@ -246,11 +343,12 @@ export class CutsceneManager {
   }
 
   /**
-   * 4. FINTO VAR COMICO (1.5s, mette in pausa il cronometro del match!)
+   * 4. FINTO VAR COMICO POTENZIATO (v4.5: arbitro SVG TV-gesture + 15 battute + finto annullamento!)
    */
   playComicVar({ bonusCash, onGrantBonus, onDone }) {
     this.close();
     const verdict = VAR_VERDICTS[Math.floor(Math.random() * VAR_VERDICTS.length)];
+    const checkLine = VAR_CHECK_LINES[Math.floor(Math.random() * VAR_CHECK_LINES.length)];
     let finished = false;
     let granted = false;
 
@@ -274,32 +372,62 @@ export class CutsceneManager {
     this.root.innerHTML = `
       <div class="var-overlay" id="var-overlay">
         <div class="var-box" id="var-box">
+          ${getVarRefereeSvg()}
           <div class="var-badge">📺 CHECK VAR IN CORSO...</div>
-          <div class="var-sub" id="var-sub">Analisi millimetriche col righello di legno...</div>
+          <div class="var-sub" id="var-sub">${escapeHTML(checkLine)}</div>
         </div>
       </div>
     `;
     this.root.classList.remove('hidden');
 
-    this._timers.push(
-      setTimeout(() => {
-        const box = document.getElementById('var-box');
-        if (!box) return;
-        grantOnce();
-        audio.playBuy();
-        const extraLine = verdict.bonus ? ` (+${formatMoney(bonusCash)})` : '';
-        box.innerHTML = `
-          <div class="var-badge ok">✅ ${escapeHTML(verdict.headline)}${escapeHTML(extraLine)}</div>
-          <div class="var-sub">${escapeHTML(verdict.sub)}</div>
-        `;
-      }, 780)
-    );
-
-    this._timers.push(setTimeout(finish, 1650));
+    if (verdict.fakeCancel) {
+      // Fase 1: Finto annullamento spaventoso!
+      this._timers.push(
+        setTimeout(() => {
+          const box = document.getElementById('var-box');
+          if (!box) return;
+          audio.playMiss();
+          box.innerHTML = `
+            <div class="var-badge danger">❌ ${escapeHTML(verdict.fakeHeadline)}</div>
+            <div class="var-sub">${escapeHTML(verdict.fakeSub)}</div>
+          `;
+        }, 680)
+      );
+      // Fase 2 (0.58s dopo): SCHERZAVO! È GOL + BONUS STILE!
+      this._timers.push(
+        setTimeout(() => {
+          const box = document.getElementById('var-box');
+          if (!box) return;
+          grantOnce();
+          audio.playBuy();
+          const extraLine = verdict.bonus ? ` (+${formatMoney(bonusCash)})` : '';
+          box.innerHTML = `
+            <div class="var-badge ok">✅ ${escapeHTML(verdict.headline)}${escapeHTML(extraLine)}</div>
+            <div class="var-sub">${escapeHTML(verdict.sub)}</div>
+          `;
+        }, 1260)
+      );
+      this._timers.push(setTimeout(finish, 2350));
+    } else {
+      this._timers.push(
+        setTimeout(() => {
+          const box = document.getElementById('var-box');
+          if (!box) return;
+          grantOnce();
+          audio.playBuy();
+          const extraLine = verdict.bonus ? ` (+${formatMoney(bonusCash)})` : '';
+          box.innerHTML = `
+            <div class="var-badge ok">✅ ${escapeHTML(verdict.headline)}${escapeHTML(extraLine)}</div>
+            <div class="var-sub">${escapeHTML(verdict.sub)}</div>
+          `;
+        }, 780)
+      );
+      this._timers.push(setTimeout(finish, 1800));
+    }
 
     const openedAt = performance.now();
     this.root.querySelector('#var-overlay')?.addEventListener('click', () => {
-      if (performance.now() - openedAt > 250) finish();
+      if (performance.now() - openedAt > 280) finish();
     });
   }
 }

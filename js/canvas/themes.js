@@ -1288,3 +1288,501 @@ export function renderStadiumTheme(ctx, leagueIndex, w, h, g, t, env, clubInfo, 
   // Costruzioni fisiche sbloccate dagli upgrade Club (evolvono con la categoria!)
   renderStadiumBuildings(ctx, w, h, g, t, upgrades, clubInfo, leagueIndex, env);
 }
+
+// --- CALCI DI RIGORE FRONTALI 3D (v4.5) ---
+
+function getPenaltyGoalBox(w, h) {
+  const gx = w * 0.14;
+  const gw = w * 0.72;
+  const gy = h * 0.17;
+  const gh = h * 0.35;
+  return { gx, gy, gw, gh, groundY: gy + gh };
+}
+
+const PEN_ZONE_COORDS = [
+  { id: 'top_left', tx: 0.24, ty: 0.28 },
+  { id: 'panenka', tx: 0.50, ty: 0.40 },
+  { id: 'top_right', tx: 0.76, ty: 0.28 },
+  { id: 'low_left', tx: 0.26, ty: 0.72 },
+  { id: 'low_right', tx: 0.74, ty: 0.72 },
+];
+
+export function hitTestPenaltyGoalZone(clickX, clickY, w, h) {
+  const box = getPenaltyGoalBox(w, h);
+  if (
+    clickX < box.gx - 12 ||
+    clickX > box.gx + box.gw + 12 ||
+    clickY < box.gy - 12 ||
+    clickY > box.groundY + 12
+  ) {
+    return null;
+  }
+  let best = null;
+  let bestDist = Infinity;
+  for (const z of PEN_ZONE_COORDS) {
+    const zx = box.gx + z.tx * box.gw;
+    const zy = box.gy + z.ty * box.gh;
+    const d = Math.hypot(clickX - zx, clickY - zy);
+    if (d < bestDist) {
+      bestDist = d;
+      best = z.id;
+    }
+  }
+  return best;
+}
+
+function draw3DPenaltyBall(ctx, x, y, r, spin = 0) {
+  ctx.save();
+  ctx.translate(x, y);
+  const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.75, '#e2e8f0');
+  grad.addColorStop(1, '#94a3b8');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(0, 0, Math.max(1, r - 0.5), 0, Math.PI * 2);
+  ctx.clip();
+  ctx.rotate(spin);
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+    const vx = Math.cos(a) * r * 0.42;
+    const vy = Math.sin(a) * r * 0.42;
+    if (i === 0) ctx.moveTo(vx, vy);
+    else ctx.lineTo(vx, vy);
+  }
+  ctx.closePath();
+  ctx.fill();
+  for (let i = 0; i < 5; i++) {
+    const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * r * 1.02, Math.sin(a) * r * 1.02, r * 0.33, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+export function renderPenaltyFrontal3D(
+  ctx,
+  w,
+  h,
+  t,
+  pen,
+  clubInfo,
+  oppColors = ['#3b82f6', '#facc15'],
+  leagueIndex = 0
+) {
+  const box = getPenaltyGoalBox(w, h);
+  const horizonY = box.groundY - 4;
+
+  // 1. Cielo notturno / stadio dietro la curva frontale
+  const sky = ctx.createLinearGradient(0, 0, 0, horizonY);
+  if (leagueIndex >= 5) {
+    sky.addColorStop(0, '#09071a');
+    sky.addColorStop(0.6, '#1e1b4b');
+    sky.addColorStop(1, '#312e81');
+  } else if (leagueIndex >= 3) {
+    sky.addColorStop(0, '#070e1c');
+    sky.addColorStop(0.6, '#0f2544');
+    sky.addColorStop(1, '#1e3a5f');
+  } else {
+    sky.addColorStop(0, '#0b1424');
+    sky.addColorStop(1, '#1e293b');
+  }
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, horizonY + 4);
+
+  // Curva Ultras animata dietro la porta
+  const standTop = h * 0.08;
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, standTop, w, horizonY - standTop);
+  const crowdCols = [
+    clubInfo.primary,
+    clubInfo.secondary,
+    '#facc15',
+    '#38bdf8',
+    '#f8fafc',
+    oppColors[0] || '#ef4444',
+  ];
+  for (let i = 0; i < 64; i++) {
+    const cx = ((i * 37) % 98 + 1) * (w / 100);
+    const row = i % 4;
+    const cy = standTop + 10 + row * ((horizonY - standTop - 16) / 4);
+    const jump = Math.abs(Math.sin(t * 4.5 + i * 0.7)) * 2.6;
+    ctx.fillStyle = crowdCols[i % crowdCols.length];
+    ctx.globalAlpha = 0.78;
+    ctx.beginPath();
+    ctx.arc(cx, cy - jump, 3.1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Cartellone pubblicitario LED lungo la linea di fondo
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, horizonY - 12, w, 12);
+  ctx.fillStyle = clubInfo.primary;
+  ctx.fillRect(0, horizonY - 12, w, 2);
+  ctx.fillStyle = '#fde047';
+  ctx.font = '800 7px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(
+    `★  ${clubInfo.name.toUpperCase()}  •  CALCI DI RIGORE  •  PROVINCIA BROADCAST HD  ★`,
+    w * 0.5,
+    horizonY - 5.5
+  );
+
+  // Fari superiori da stadio
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const fx of [w * 0.18, w * 0.82]) {
+    const beam = ctx.createRadialGradient(fx, 14, 4, fx, h * 0.45, w * 0.42);
+    beam.addColorStop(0, 'rgba(254, 249, 195, 0.28)');
+    beam.addColorStop(0.55, 'rgba(186, 230, 253, 0.08)');
+    beam.addColorStop(1, 'rgba(186, 230, 253, 0)');
+    ctx.fillStyle = beam;
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.restore();
+
+  // 2. Prato in prospettiva frontale con fasce rasate e area di rigore
+  const turfGrad = ctx.createLinearGradient(0, horizonY, 0, h);
+  turfGrad.addColorStop(0, '#166534');
+  turfGrad.addColorStop(0.5, '#15803d');
+  turfGrad.addColorStop(1, '#14532d');
+  ctx.fillStyle = turfGrad;
+  ctx.fillRect(0, horizonY, w, h - horizonY);
+
+  // Fasce rasate orizzontali in prospettiva
+  const stripeBands = 6;
+  for (let i = 0; i < stripeBands; i++) {
+    const f0 = Math.pow(i / stripeBands, 1.35);
+    const f1 = Math.pow((i + 1) / stripeBands, 1.35);
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.fillRect(0, horizonY + f0 * (h - horizonY), w, (f1 - f0) * (h - horizonY));
+    }
+  }
+
+  // Linea di porta, area piccola e dischetto del rigore
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(0, box.groundY);
+  ctx.lineTo(w, box.groundY);
+  // Area piccola trapezoidale
+  ctx.moveTo(box.gx - w * 0.04, box.groundY);
+  ctx.lineTo(w * 0.04, h * 0.72);
+  ctx.lineTo(w * 0.96, h * 0.72);
+  ctx.lineTo(box.gx + box.gw + w * 0.04, box.groundY);
+  ctx.stroke();
+
+  // Dischetto del rigore in basso al centro
+  const spotX = w * 0.5;
+  const spotY = h * 0.87;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.beginPath();
+  ctx.ellipse(spotX, spotY, 8.5, 3.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3. GRANDE PORTA FRONTALE 3D CON RETE ELASTICA
+  const insetX = box.gw * 0.075;
+  const insetY = box.gh * 0.11;
+  const anim = pen.shotAnim;
+  const animU = anim && anim.active ? Math.min(1, anim.elapsed / Math.max(0.05, anim.duration)) : 0;
+  const netHit =
+    anim && anim.active && anim.scored && animU > 0.58
+      ? Math.sin(((animU - 0.58) / 0.42) * Math.PI) * 11
+      : 0;
+
+  // Ombra porta sull'erba
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.fillRect(box.gx - 4, box.groundY, box.gw + 8, 7);
+
+  // Interno rete semitrasparente
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
+  ctx.fillRect(box.gx, box.gy, box.gw, box.gh);
+
+  // Maglia della rete 3D (fondo + lati + cielo)
+  ctx.strokeStyle = 'rgba(241, 245, 249, 0.36)';
+  ctx.lineWidth = 1;
+  const bx0 = box.gx + insetX;
+  const bx1 = box.gx + box.gw - insetX;
+  const by0 = box.gy + insetY;
+  const by1 = box.groundY - 2;
+
+  const impactX = anim ? box.gx + anim.targetTx * box.gw : w * 0.5;
+  const impactY = anim ? box.gy + anim.targetTy * box.gh : box.gy + box.gh * 0.5;
+
+  // Linee verticali della rete sul fondo
+  for (let i = 0; i <= 12; i++) {
+    const f = i / 12;
+    const x = bx0 + (bx1 - bx0) * f;
+    const distScale = Math.max(0, 1 - Math.abs(x - impactX) / (box.gw * 0.35));
+    const push = netHit * distScale;
+    ctx.beginPath();
+    ctx.moveTo(x, by0);
+    ctx.quadraticCurveTo(x + (x < impactX ? -push * 0.35 : push * 0.35), impactY, x, by1);
+    ctx.stroke();
+  }
+  // Linee orizzontali della rete sul fondo
+  for (let j = 0; j <= 6; j++) {
+    const f = j / 6;
+    const y = by0 + (by1 - by0) * f;
+    const distScale = Math.max(0, 1 - Math.abs(y - impactY) / (box.gh * 0.45));
+    const push = netHit * distScale;
+    ctx.beginPath();
+    ctx.moveTo(bx0, y);
+    ctx.quadraticCurveTo(impactX, y - push * 0.45, bx1, y);
+    ctx.stroke();
+  }
+  // Cavi prospettici laterali (dalla traversa/pali verso il fondo rete)
+  for (let j = 1; j <= 5; j++) {
+    const f = j / 6;
+    ctx.beginPath();
+    ctx.moveTo(box.gx, box.gy + box.gh * f);
+    ctx.lineTo(bx0, by0 + (by1 - by0) * f);
+    ctx.moveTo(box.gx + box.gw, box.gy + box.gh * f);
+    ctx.lineTo(bx1, by0 + (by1 - by0) * f);
+    ctx.stroke();
+  }
+
+  // Pali e Traversa 3D bianchi brillanti
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 6.2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.moveTo(box.gx, box.groundY);
+  ctx.lineTo(box.gx, box.gy);
+  ctx.lineTo(box.gx + box.gw, box.gy);
+  ctx.lineTo(box.gx + box.gw, box.groundY);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // 4. MIRINI DELLE 5 ZONE IN PORTA (solo nel turno tiro del giocatore!)
+  if (pen.turn === 'player' && !pen.locked) {
+    for (const z of PEN_ZONE_COORDS) {
+      const zx = box.gx + z.tx * box.gw;
+      const zy = box.gy + z.ty * box.gh;
+      const isSel = pen.selectedZone === z.id;
+      const r = isSel ? 15 + Math.sin(t * 9) * 2.2 : 10;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(zx, zy, r, 0, Math.PI * 2);
+      ctx.fillStyle = isSel ? 'rgba(34, 197, 94, 0.34)' : 'rgba(255, 255, 255, 0.12)';
+      ctx.fill();
+      ctx.strokeStyle = isSel ? '#fde047' : 'rgba(255, 255, 255, 0.52)';
+      ctx.lineWidth = isSel ? 2.6 : 1.4;
+      ctx.stroke();
+
+      if (isSel) {
+        ctx.beginPath();
+        ctx.moveTo(zx - 7, zy);
+        ctx.lineTo(zx + 7, zy);
+        ctx.moveTo(zx, zy - 7);
+        ctx.lineTo(zx, zy + 7);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // 5. PORTIERE SULLA LINEA DI PORTA (si tuffa davvero!)
+  const isPlayerShooting = pen.turn === 'player';
+  const gkKitPrimary = isPlayerShooting ? '#84cc16' : clubInfo.primary;
+  const gkKitSecondary = isPlayerShooting ? '#0f172a' : clubInfo.secondary;
+
+  let gkX = w * 0.5;
+  let gkY = box.groundY - 22;
+  let gkAngle = 0;
+
+  if (anim && anim.active) {
+    const diveEase = Math.sin(Math.min(1, animU * 1.35) * (Math.PI / 2));
+    const kc = anim.keeperCorner;
+    if (kc === 'left') {
+      gkX = w * 0.5 - box.gw * 0.29 * diveEase;
+      gkY = box.groundY - 22 - (anim.keeperHeight === 'top' ? 18 : 6) * diveEase;
+      gkAngle = -1.12 * diveEase;
+    } else if (kc === 'right') {
+      gkX = w * 0.5 + box.gw * 0.29 * diveEase;
+      gkY = box.groundY - 22 - (anim.keeperHeight === 'top' ? 18 : 6) * diveEase;
+      gkAngle = 1.12 * diveEase;
+    } else if (kc === 'center') {
+      gkY = box.groundY - 22 - 8 * Math.sin(animU * Math.PI);
+    }
+  } else {
+    // Rimbalzo atletico da fermo
+    gkX = w * 0.5 + Math.sin(t * 4.2) * 5;
+    gkY = box.groundY - 22 - Math.abs(Math.sin(t * 6)) * 3;
+  }
+
+  ctx.save();
+  ctx.translate(gkX, gkY);
+  // Ombra portiere
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.beginPath();
+  ctx.ellipse(0, 22, 16, 4.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.rotate(gkAngle);
+  // Gambe
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(-7, 6, 5, 14);
+  ctx.fillRect(2, 6, 5, 14);
+  // Busto portiere
+  ctx.fillStyle = gkKitPrimary;
+  ctx.beginPath();
+  ctx.roundRect(-10, -10, 20, 18, 5);
+  ctx.fill();
+  ctx.fillStyle = gkKitSecondary;
+  ctx.fillRect(-3.5, -10, 7, 17);
+  // Braccia + Guantoni larghi
+  ctx.strokeStyle = gkKitPrimary;
+  ctx.lineWidth = 4.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-9, -6);
+  ctx.lineTo(-20, -14);
+  ctx.moveTo(9, -6);
+  ctx.lineTo(20, -14);
+  ctx.stroke();
+  ctx.fillStyle = '#fde047';
+  ctx.beginPath();
+  ctx.arc(-21, -15, 4.2, 0, Math.PI * 2);
+  ctx.arc(21, -15, 4.2, 0, Math.PI * 2);
+  ctx.fill();
+  // Testa
+  ctx.fillStyle = '#fed7aa';
+  ctx.beginPath();
+  ctx.arc(0, -16, 6.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath();
+  ctx.arc(0, -18.5, 6.2, Math.PI, 0);
+  ctx.fill();
+  ctx.restore();
+
+  // 6. RINCORSA & TELEGRAPH DELL'AVVERSARIO (nel turno parata riflessi!)
+  if (pen.turn === 'opponent') {
+    const runFrac = Math.min(1, (pen.runupElapsed || 0) / Math.max(0.1, pen.runupDuration || 1.15));
+    const hint = pen.telegraphHint;
+    const leanDir = hint ? (hint.corner === 'left' ? -1 : hint.corner === 'right' ? 1 : 0) : 0;
+    const leanAmt = hint ? hint.intensity : 0;
+
+    const kx = spotX + leanDir * 14 * leanAmt;
+    const ky = h * 0.99 - runFrac * (h * 0.13);
+    const kScale = 1.25 - runFrac * 0.18;
+
+    ctx.save();
+    ctx.translate(kx, ky);
+    ctx.scale(kScale, kScale);
+    ctx.rotate(leanDir * 0.34 * leanAmt);
+
+    // Sagoma tiratore rivale visto da dietro
+    ctx.fillStyle = oppColors[0] || '#3b82f6';
+    ctx.beginPath();
+    ctx.roundRect(-11, -18, 22, 20, 6);
+    ctx.fill();
+    ctx.fillStyle = oppColors[1] || '#facc15';
+    ctx.fillRect(-4, -18, 8, 19);
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath();
+    ctx.arc(0, -25, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Bagliore direzionale + freccia di telegraph ben leggibile!
+    if (hint && !pen.locked) {
+      const glowX =
+        hint.corner === 'left'
+          ? spotX - 46
+          : hint.corner === 'right'
+            ? spotX + 46
+            : spotX;
+      const glowY = hint.corner === 'center' ? spotY - 40 : spotY - 14;
+      const arrow = hint.corner === 'left' ? '⬅️ SINISTRA!' : hint.corner === 'right' ? 'DESTRA! ➡️' : '⬆️ CENTRO!';
+
+      ctx.save();
+      const pulse = 0.75 + Math.sin(t * 28) * 0.25;
+      ctx.globalAlpha = Math.min(1, 0.45 + hint.intensity * 0.55) * pulse;
+      ctx.fillStyle = 'rgba(14, 165, 233, 0.28)';
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.roundRect(glowX - 42, glowY - 13, 84, 26, 12);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#fef08a';
+      ctx.font = '900 10.5px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(arrow, glowX, glowY + 0.5);
+      ctx.restore();
+    }
+  }
+
+  // 7. PALLONE 3D SUL DISCHETTO O IN VOLO PARABOLICO VERSO LA PORTA!
+  let bx = spotX;
+  let by = spotY - 6;
+  let br = 12.5;
+  let bSpin = t * 1.4;
+
+  if (anim && anim.active) {
+    const destX = box.gx + anim.targetTx * box.gw;
+    const destY = box.gy + anim.targetTy * box.gh;
+    const flyU = Math.min(1, animU / 0.68);
+    const arcLift = Math.sin(flyU * Math.PI) * (anim.targetZoneId === 'panenka' ? 44 : 24);
+
+    if (animU <= 0.68) {
+      bx = spotX + (destX - spotX) * flyU;
+      by = spotY - 6 + (destY - (spotY - 6)) * flyU - arcLift;
+      br = 12.5 - flyU * 6.2;
+      bSpin = animU * 22;
+    } else {
+      const postU = (animU - 0.68) / 0.32;
+      if (anim.saved || anim.outcomeType === 'post') {
+        const defDir = anim.targetTx < 0.5 ? -1 : 1;
+        bx = destX + defDir * postU * 48;
+        by = destY + postU * 26 - Math.sin(postU * Math.PI) * 18;
+        br = 6.3 + postU * 1.6;
+        bSpin = 22 + postU * 14;
+      } else if (anim.outcomeType === 'over') {
+        bx = destX;
+        by = destY - postU * 30;
+        br = Math.max(4, 6.2 - postU * 2);
+      } else {
+        // Dentro la rete, cade morbido sull'erba
+        bx = destX;
+        by = Math.min(box.groundY - 4, destY + postU * (box.groundY - destY) * 0.55);
+        br = 6.2;
+      }
+    }
+  }
+
+  // Ombra palla a terra
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
+  ctx.beginPath();
+  ctx.ellipse(bx, Math.min(spotY + 4, by + br + 3), br * 0.85, br * 0.32, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  draw3DPenaltyBall(ctx, bx, by, br, bSpin);
+  drawRoofStructure(ctx, w, { style: leagueIndex >= 4 ? 'futuristic' : 'metal', lights: 4 });
+}

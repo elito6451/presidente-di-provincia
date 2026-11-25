@@ -1,7 +1,7 @@
 import {
   AUTO_SAVE_INTERVAL_MS,
   FORMATION_SLOTS_DEF,
-  SEASON_BONUS_TOKENS,
+  PRESTIGE_SOFTCAP_EXPONENT,
 } from './config.js';
 import { formatMoney, escapeHTML } from './format.js';
 import {
@@ -25,11 +25,19 @@ import {
   fuseBenchIntoStarter,
   petPolpetta,
   isPolpettaReady,
-  canStartNewSeason,
-  startNewSeason,
   syncPeakIncomeTracking,
+  evaluateMasteryTrophies,
 } from './state.js';
 import { buyResearch } from './research.js';
+import {
+  startExpedition,
+  claimExpedition,
+  equipRelic,
+  unequipRelicSlot,
+  fuseRelics,
+  recycleRelic,
+  RELIC_RARITIES,
+} from './expeditions.js';
 import {
   loadGame,
   saveGame,
@@ -61,7 +69,7 @@ import { HudController } from './ui/hud.js';
 import { TabsController } from './ui/tabs.js';
 import { ModalManager } from './ui/modals.js';
 
-// 1. Carica salvataggio (migrazione trasparente v1/v2/v2.5 -> v3.0)
+// 1. Carica salvataggio (migrazione trasparente v1..v4.0 -> v4.5)
 const { state, offline } = loadGame();
 audio.setMusicEnabled(state.musicEnabled);
 audio.setSfxEnabled(state.sfxEnabled);
@@ -145,6 +153,23 @@ function checkRosterChallengesAndNotify() {
   }
 }
 
+function checkMasteryAndNotify() {
+  const unlocked = evaluateMasteryTrophies(state);
+  if (unlocked.length > 0) {
+    for (const u of unlocked) {
+      const tokPart = u.tokens > 0 ? `+${u.tokens} 🪙 & ` : '';
+      modals.toast(
+        `🏆 Maestria ${u.league.shortName} ${u.tier.icon} ${u.tier.label}! ${tokPart}+${u.tier.incomePct}% permanente!`,
+        3400
+      );
+    }
+    audio.playBuy();
+    saveGame(state);
+    return true;
+  }
+  return false;
+}
+
 function getClubInfo() {
   return {
     name: state.clubName,
@@ -164,11 +189,16 @@ function updateTutorialPointer() {
   const inTutorial = (state.tutorialStep ?? TUTORIAL_DONE_STEP) < TUTORIAL_DONE_STEP;
   const dockVisible = elGinoDock && elGinoDock.classList.contains('visible');
 
-  // Mostra Spotlight + Freccia SOLO durante il tutorial dopo aver chiuso Gino (e mai in partita!)
   if (!inTutorial || dockVisible || matchCtrl.active || !tabs) {
     elTutorialPointer.classList.add('hidden');
     elTutorialSpotlight?.classList.add('hidden');
     return;
+  }
+
+  // Assicura che la subtab di Scouting corrisponda al passo del tutorial (Passo 3 -> Buste, Passo 4 -> Formazione)
+  const stepDef = TUTORIAL_STEPS[state.tutorialStep];
+  if (stepDef?.subtab && tabs.activeTab === 'scouting' && tabs.scoutingSubtab !== stepDef.subtab) {
+    tabs.setScoutingSubtab(stepDef.subtab, false);
   }
 
   const target = getTutorialPointerTarget(state, tabs.activeTab);
@@ -178,7 +208,6 @@ function updateTutorialPointer() {
     return;
   }
 
-  // Auto-scroll fluido quando lo Spotlight punta un elemento dentro una tab scorrevole (es. Formazione / Checklist / Ricerche)
   if (target.inScroll && lastSpotlightTargetId !== target.id) {
     lastSpotlightTargetId = target.id;
     try {
@@ -204,7 +233,6 @@ function updateTutorialPointer() {
     return;
   }
 
-  // Spotlight morbido non bloccante sull'elemento bersaglio
   if (elTutorialSpotlight) {
     const pad = 4;
     const sLeft = Math.max(2, rect.left - shellRect.left - pad);
@@ -250,7 +278,6 @@ function renderGinoAssistant() {
     elGinoTopAvatar.innerHTML = getGinoAvatarSvg(state.clubColors.primary);
   }
 
-  // Durante le partite 0'-90' e rigori: Gino esce sempre di lato lasciando campo e TIRA! liberi!
   if (matchCtrl.active) {
     closeGinoDock();
     elTutorialPointer?.classList.add('hidden');
@@ -293,8 +320,15 @@ function renderGinoAssistant() {
         const dismissDock = () => {
           tutorialBubbleDismissedStep = state.tutorialStep;
           closeGinoDock();
-          if (stepDef.targetTab && tabs && tabs.activeTab !== stepDef.targetTab) {
-            tabs.switchTo(stepDef.targetTab);
+          if (stepDef.subtab && tabs) {
+            tabs.setScoutingSubtab(stepDef.subtab, true);
+          }
+          if (stepDef.targetTab && tabs) {
+            if (tabs.activeTab !== stepDef.targetTab) {
+              tabs.switchTo(stepDef.targetTab);
+            } else {
+              tabs.render(state, matchCtrl);
+            }
           }
           updateTutorialPointer();
         };
@@ -306,8 +340,15 @@ function renderGinoAssistant() {
           lastSpotlightTargetId = null;
           saveGame(state);
           const nextDef = TUTORIAL_STEPS[state.tutorialStep];
-          if (nextDef?.targetTab && tabs && tabs.activeTab !== nextDef.targetTab) {
-            tabs.switchTo(nextDef.targetTab);
+          if (nextDef?.subtab && tabs) {
+            tabs.setScoutingSubtab(nextDef.subtab, true);
+          }
+          if (nextDef?.targetTab && tabs) {
+            if (tabs.activeTab !== nextDef.targetTab) {
+              tabs.switchTo(nextDef.targetTab);
+            } else {
+              tabs.render(state, matchCtrl);
+            }
           }
           renderGinoAssistant();
         };
@@ -345,7 +386,6 @@ function renderGinoAssistant() {
     return;
   }
 
-  // Post-tutorial: avatar in barra alta + pallino luminoso; al tap entra il mezzo busto animato di Gino!
   const tip = getGinoDynamicTip(state);
   elGinoDot?.classList.toggle('hidden', !tip.urgent);
   elTutorialPointer?.classList.add('hidden');
@@ -364,7 +404,7 @@ function renderGinoAssistant() {
         <div class="gino-dock-title">Gino il DS — ${escapeHTML(tip.title)}</div>
         <div class="gino-dock-text" id="gino-type-text"></div>
         <div class="gino-dock-actions">
-          ${tip.ctaTab ? `<button type="button" class="mini-btn primary" id="btn-gino-cta" data-goto="${tip.ctaTab}">${escapeHTML(tip.ctaLabel)}</button>` : ''}
+          ${tip.ctaTab ? `<button type="button" class="mini-btn primary" id="btn-gino-cta" data-goto="${tip.ctaTab}" data-subtab="${tip.ctaSubtab || ''}">${escapeHTML(tip.ctaLabel)}</button>` : ''}
           <button type="button" class="mini-btn" id="btn-gino-close">Capito!</button>
         </div>
       `;
@@ -386,9 +426,13 @@ function renderGinoAssistant() {
       };
       elGinoBubble.querySelector('#btn-gino-cta')?.addEventListener('click', (e) => {
         e.stopPropagation();
+        const gotoTab = e.currentTarget.dataset.goto;
+        const gotoSub = e.currentTarget.dataset.subtab;
         ginoTipOpen = false;
         closeGinoDock();
-        tabs.switchTo(e.currentTarget.dataset.goto);
+        if (gotoSub) tabs.setScoutingSubtab(gotoSub, true);
+        if (tabs.activeTab !== gotoTab) tabs.switchTo(gotoTab);
+        else tabs.render(state, matchCtrl);
         renderGinoAssistant();
       });
       elGinoBubble.querySelector('#btn-gino-close')?.addEventListener('click', (e) => {
@@ -425,12 +469,12 @@ function refreshFullUI() {
 }
 
 function finalizeMatchOutcome(outcome) {
+  matchCtrl.finishPenalties();
   modals.hidePenaltyDock();
   audio.stopStadiumAmbience();
   audio.fadeMusicForMatch(false);
   audio.playWhistle('fulltime');
 
-  // Valuta le 8 Sfide del Presidente
   const newChallenges = evaluateMatchChallenges(state, {
     won: outcome.won,
     byPenalties: Boolean(outcome.byPenalties),
@@ -444,6 +488,7 @@ function finalizeMatchOutcome(outcome) {
   for (const ch of newChallenges) {
     modals.toast(`🏅 Sfida "${ch.name}" completata! +${ch.tokenReward} 🪙 & ${ch.perkLabel(1)}!`, 3200);
   }
+  checkMasteryAndNotify();
 
   if (outcome.won) {
     audio.playGoal();
@@ -458,17 +503,21 @@ function finalizeMatchOutcome(outcome) {
     refreshFullUI();
   };
 
-  // Prima Pagina "Gazzetta della Provincia" su promozione o Superlega Galattica!
-  if (outcome.won && (outcome.promoted || outcome.finalCup)) {
-    const headline = outcome.finalCup
-      ? `${state.clubName.toUpperCase()} CAMPIONE GALATTICO!`
+  if (outcome.won && (outcome.promoted || outcome.dynastyUp)) {
+    const headline = outcome.dynastyUp
+      ? `${state.clubName.toUpperCase()} — DINASTIA LV.${outcome.dynastyLevel}!`
       : `STORICO! ${state.clubName.toUpperCase()} VOLA IN ${outcome.newLeague.name.toUpperCase()}!`;
-    const subline = outcome.finalCup
-      ? `Battuto ${outcome.opponent} (${outcome.myGoals}-${outcome.oppGoals})! Polpetta fa il giro d'onore, pronta la Stella d'Oro ★!`
+    const subline = outcome.dynastyUp
+      ? `Battuto ${outcome.opponent} (${outcome.myGoals}-${outcome.oppGoals})! Corona di Dinastia Lv.${outcome.dynastyLevel} e +20% incassi per sempre!`
       : `Travolto ${outcome.opponent} (${outcome.myGoals}-${outcome.oppGoals})! Paninaro preso d'assalto, città bloccata dai clacson!`;
 
     cutscenes.playGazzettaFrontPage(
-      { clubName: state.clubName, headline, subline, tag: 'PROMOZIONE STORICA' },
+      {
+        clubName: state.clubName,
+        headline,
+        subline,
+        tag: outcome.dynastyUp ? 'DINASTIA GALATTICA' : 'PROMOZIONE STORICA',
+      },
       showResult
     );
   } else {
@@ -476,20 +525,37 @@ function finalizeMatchOutcome(outcome) {
   }
 }
 
+function handleOpponentPenaltyResolved(res) {
+  if (!res) return;
+  if (res.saved) audio.playPerfectSave();
+  else if (res.scored) audio.playMiss();
+  else audio.playCrossbar();
+  mountPenaltyControls();
+
+  setTimeout(() => {
+    if (res.matchOutcome) {
+      finalizeMatchOutcome(res.matchOutcome);
+    } else if (matchCtrl.isPenalties) {
+      matchCtrl.advancePenaltyAfterOpponent();
+      mountPenaltyControls();
+    }
+  }, 950);
+}
+
 function mountPenaltyControls() {
   if (!matchCtrl.isPenalties) return;
   audio.setAmbienceIntensity(0.75);
   modals.renderPenaltyDock(matchCtrl, state, {
-    onSelectCorner(corner) {
-      matchCtrl.setPenaltyCorner(corner);
+    onSelectZone(zoneId) {
+      matchCtrl.setPenaltyZone(zoneId);
       mountPenaltyControls();
     },
     onShoot() {
       audio.unlock();
       const res = matchCtrl.shootPlayerPenalty(state);
       if (!res) return;
-      stadium.triggerPenaltyVisual(true, res.corner, res.scored, state.leagueIndex);
       if (res.scored) audio.playGoal();
+      else if (res.saved) audio.playSave();
       else audio.playMiss();
       mountPenaltyControls();
 
@@ -505,34 +571,32 @@ function mountPenaltyControls() {
     onDive(diveCorner) {
       audio.unlock();
       const res = matchCtrl.diveForOpponentPenalty(diveCorner, state);
-      if (!res) return;
-      stadium.triggerPenaltyVisual(false, res.oppCorner, res.scored, state.leagueIndex);
-      if (res.saved) audio.playSave();
-      else if (res.scored) audio.playMiss();
-      else audio.playCrossbar();
-      mountPenaltyControls();
-
-      setTimeout(() => {
-        if (res.matchOutcome) {
-          finalizeMatchOutcome(res.matchOutcome);
-        } else if (matchCtrl.isPenalties) {
-          matchCtrl.advancePenaltyAfterOpponent();
-          mountPenaltyControls();
-        }
-      }, 950);
+      handleOpponentPenaltyResolved(res);
     },
   });
 }
 
-// 2. Canvas Stadio Vivo 2.5D
+// 2. Canvas Stadio Vivo 2.5D (+ Porta Frontale 3D sui Rigori!)
 const canvasEl = document.getElementById('stadium-canvas');
 stadium = new StadiumCanvas(canvasEl, {
   onPointerDown({ clickX, clickY, stageNormX, stageNormY, pitchNormX, pitchNormY, projectFn }) {
     audio.unlock();
 
-    if (matchCtrl.isPenalties || matchCtrl.paused) return;
+    if (matchCtrl.paused) return;
 
-    // Priorità 1 durante il match: Azione Chiave (TIRA! anello precisione / PARA!)
+    // Sui Rigori 3D: toccare direttamente la zona dentro la porta 3D seleziona il bersaglio!
+    if (matchCtrl.isPenalties) {
+      if (matchCtrl.penalties && matchCtrl.penalties.turn === 'player' && !matchCtrl.penalties.locked) {
+        const hitZone = stadium.hitTestPenaltyGoal(clickX, clickY);
+        if (hitZone) {
+          matchCtrl.setPenaltyZone(hitZone);
+          mountPenaltyControls();
+        }
+      }
+      return;
+    }
+
+    // Priorità 1 durante il match: Azione Chiave (TIRA! / PARA! di precisione con Finta & Ribattuta)
     if (matchCtrl.isPlaying) {
       const actionHit = matchCtrl.tryHitKeyActionPx(clickX, clickY, projectFn);
       if (actionHit) {
@@ -541,8 +605,8 @@ stadium = new StadiumCanvas(canvasEl, {
           audio.setAmbienceIntensity(0.9);
           stadium.triggerMatchGoal(true, state.leagueIndex);
 
-          // Raro (~15%, max 1 volta a partita): Finto VAR comico con pausa del cronometro!
-          if (!matchCtrl.varTriggeredThisMatch && matchCtrl.minute < 84 && Math.random() < 0.15) {
+          // Finto VAR Comico v4.5 (~28%, max 1 volta a partita, 15 battute + finto annullamento!)
+          if (!matchCtrl.varTriggeredThisMatch && matchCtrl.minute < 84 && Math.random() < 0.28) {
             matchCtrl.varTriggeredThisMatch = true;
             matchCtrl.setPaused(true);
             const stats = computeStats(state);
@@ -564,22 +628,41 @@ stadium = new StadiumCanvas(canvasEl, {
           audio.playCrossbar();
           audio.setAmbienceIntensity(0.25);
           stadium.triggerMatchCrossbar(state.leagueIndex);
+        } else if (actionHit.type === 'perfect_save') {
+          audio.playPerfectSave();
+          audio.setAmbienceIntensity(0.65);
+          stadium.triggerPerfectSave(actionHit.nx, actionHit.ny);
         } else if (actionHit.type === 'player_save') {
           audio.playSave();
-          audio.setAmbienceIntensity(0.3);
+          audio.setAmbienceIntensity(0.35);
           stadium.triggerMatchSave(actionHit.nx, actionHit.ny);
+        } else if (actionHit.type === 'early_dive') {
+          audio.playMiss();
+          audio.setAmbienceIntensity(0.2);
+          stadium.triggerEarlyDive(state.leagueIndex);
+        } else if (actionHit.type === 'pscon_block') {
+          audio.playSave();
+          audio.setAmbienceIntensity(0.35);
+          stadium.triggerPsconBlock(actionHit.nx, actionHit.ny);
+        } else if (actionHit.type === 'feint_baited') {
+          audio.playCrossbar();
+          stadium.triggerFeintBaited(actionHit.nx, actionHit.ny);
+        } else if (actionHit.type === 'rebound_spawn') {
+          audio.playRebound();
+          stadium.triggerReboundSpawn(actionHit.nx, actionHit.ny);
         }
         hud.update(state, matchCtrl);
         return;
       }
     }
 
-    // Priorità 2 (fuori partita): Eventi Casuali sul Canvas (Flash / Invasione / Blackout)
+    // Priorità 2 (fuori partita): Eventi Casuali sul Canvas (inclusi Vicino, Ape Car, Fumogeni!)
     if (!matchCtrl.active) {
       const hit = flashEvents.tryHit({ stageNormX, stageNormY, pitchNormX, pitchNormY }, state);
       if (hit) {
         if (hit.partial) {
-          audio.playTap(true);
+          if (hit.horn) audio.playHorn();
+          else audio.playTap(true);
           stadium.triggerShake(3.2, 0.1);
           stadium.entities.spawnFloatingText(pitchNormX, pitchNormY, `ANCORA ${hit.remaining}!`, {
             color: '#fde047',
@@ -588,6 +671,7 @@ stadium = new StadiumCanvas(canvasEl, {
           return;
         }
         if (hit.event.kind === 'blackout') audio.playPowerOn();
+        else if (hit.event.kind === 'ape_car') audio.playHorn();
         else if (hit.event.kind === 'invasion') audio.playWhistle('short');
         else audio.playFlashEvent(true);
 
@@ -596,7 +680,6 @@ stadium = new StadiumCanvas(canvasEl, {
         else {
           if (hit.freePackId) parts.push('🏅 +1 Busta Gratis');
           if (hit.cash > 0) parts.push(`+${formatMoney(hit.cash)}`);
-          if (hit.tokens > 0) parts.push(`+${hit.tokens} 🪙`);
         }
         const msg = parts.join(' • ');
         stadium.triggerEventHitFeedback(stageNormX, stageNormY, msg);
@@ -667,6 +750,7 @@ tabs = new TabsController({
       modals.toast(`🔥 Milestone Lv.${res.newMilestones.join('/')} su ${res.upgrade.name}: produzione ×2${tokMsg}`, 2800);
       stadium.entities.spawnCrowdBubble('UPGRADE ×2!', { color: '#fde047' });
     }
+    checkMasteryAndNotify();
     evaluateTutorialProgress(state);
     saveGame(state);
     refreshFullUI();
@@ -699,7 +783,6 @@ tabs = new TabsController({
       modals.toast(`🌟 Nuova Leggenda Segreta! +${res.firstSecretTokens} 🪙 Gettoni d'Oro!`, 3400);
     }
 
-    // Walkout Epico dedicato per tutte e 4 le Leggende Segrete!
     if (res.player.rarity === 'segreto') {
       const isFirstTime = !wasDiscoveredBefore.has(res.player.secretId);
       cutscenes.playSecretWalkout(res, {
@@ -786,7 +869,6 @@ tabs = new TabsController({
     const matchingSlots = FORMATION_SLOTS_DEF.filter((s) => s.role === player.role);
     if (matchingSlots.length === 0) return;
 
-    // Preferisci slot vuoto dello stesso ruolo, altrimenti sostituisci il titolare più debole di quel ruolo
     let targetSlot = matchingSlots.find((s) => !state.lineup?.[s.key]);
     if (!targetSlot) {
       const starters = getStarters(state).filter((s) => s.slotDef.role === player.role);
@@ -819,38 +901,78 @@ tabs = new TabsController({
     const res = sellBenchPlayer(state, benchId, computeStats(state));
     if (!res.ok) return;
     audio.playBuy();
-    const tokMsg = res.tokens > 0 ? ` e +${res.tokens} 🪙` : '';
-    modals.toast(`💰 ${res.player.shortName || res.player.name} ceduto: +${formatMoney(res.cash)}${tokMsg}!`);
+    modals.toast(`💰 ${res.player.shortName || res.player.name} ceduto: +${formatMoney(res.cash)}!`);
     saveGame(state);
     refreshFullUI();
   },
 
-  onStartNewSeason() {
+  // --- SPEDIZIONI & CIMELI v4.5 ---
+  onStartExpedition(expId) {
     audio.unlock();
-    if (!canStartNewSeason(state)) return;
-    const nextSeason = (state.seasonNumber || 1) + 1;
-    const nextStars = (state.seasonStars || 0) + 1;
-    const nextMult = Math.pow(2, nextStars);
-    const gainedShares = getPendingPrestigeShares(state);
+    const res = startExpedition(state, expId);
+    if (!res.ok) return;
+    audio.playBuy();
+    modals.toast(`${res.def.icon} Spedizione "${res.def.name}" partita!`);
+    saveGame(state);
+    refreshFullUI();
+  },
 
-    modals.showNewSeasonConfirm(
-      {
-        nextSeason,
-        nextStars,
-        nextMult,
-        gainedShares,
-        bonusTokens: SEASON_BONUS_TOKENS,
-      },
-      () => {
-        const res = startNewSeason(state);
-        if (!res.ok) return;
-        audio.playGoal();
-        stadium.celebratePromotion(true);
-        saveGame(state);
-        modals.toast(`🌌 Stagione ${res.seasonNumber} iniziata! ${res.seasonStars}★ (×${Math.pow(2, res.seasonStars)}) & +${res.bonusTokens} 🪙!`, 3400);
-        refreshFullUI();
+  onClaimExpedition() {
+    audio.unlock();
+    const res = claimExpedition(state);
+    if (!res.ok) return;
+    audio.playPackOpen(res.drops.some((d) => d.rarity === 'leggendario') ? 'leggenda' : 'epico');
+    saveGame(state);
+    modals.showExpeditionRewardModal(res.def, res.drops, () => {
+      refreshFullUI();
+    });
+  },
+
+  onEquipRelic(uid) {
+    audio.unlock();
+    const res = equipRelic(state, uid);
+    if (!res.ok) {
+      if (res.reason === 'duplicate_type') {
+        modals.toast('Puoi equipaggiare max 1 Cimelio per tipo! Rimuovi quello vecchio prima.');
       }
-    );
+      return;
+    }
+    audio.playBuy();
+    modals.toast('🏺 Cimelio equipaggiato (permanente al Prestige)!');
+    saveGame(state);
+    refreshFullUI();
+  },
+
+  onUnequipRelic(slotIdx) {
+    audio.unlock();
+    if (unequipRelicSlot(state, slotIdx)) {
+      audio.playTap(false);
+      saveGame(state);
+      refreshFullUI();
+    }
+  },
+
+  onFuseRelics(relicId, rarity) {
+    audio.unlock();
+    const res = fuseRelics(state, relicId, rarity);
+    if (!res.ok) return;
+    const newRar = res.upgraded.rarity;
+    const nxtLabel = RELIC_RARITIES[newRar]?.label || newRar;
+    audio.playPackOpen(newRar === 'leggendario' ? 'leggenda' : 'epico');
+    modals.toast(`🔥 Fusione Cimelio riuscita! Creato ${res.def.name} (${nxtLabel})!`, 3000);
+    saveGame(state);
+    refreshFullUI();
+  },
+
+  onRecycleRelic(uid) {
+    audio.unlock();
+    const res = recycleRelic(state, uid, computeStats(state));
+    if (!res.ok) return;
+    addMoney(state, res.cash);
+    audio.playBuy();
+    modals.toast(`♻️ Cimelio riciclato: +${formatMoney(res.cash)} in cassa!`);
+    saveGame(state);
+    refreshFullUI();
   },
 
   async onCopyWhatsApp() {
@@ -897,7 +1019,7 @@ tabs = new TabsController({
     audio.startStadiumAmbience();
     audio.setAmbienceIntensity(0.25);
     stadium.entities.spawnCrowdBubble('DAI RAGAZZI!', { color: '#7dd3fc' });
-    modals.toast(`Calcio d'inizio vs ${matchCtrl.opponent}! Ferma l'anello TIRA! sul verde!`);
+    modals.toast(`Calcio d'inizio vs ${matchCtrl.opponent}! TIRA! sul verde, PARA! sul ciano!`);
     refreshFullUI();
   },
 
@@ -907,9 +1029,9 @@ tabs = new TabsController({
     const gainedShares = getPendingPrestigeShares(state);
     const totalShares = (state.prestigeShares || 0) + gainedShares;
     const sharePct = stats.research.shareBonusPct;
-    const nextMult = 1 + (totalShares * sharePct) / 100;
+    const nextMult = 1 + (Math.pow(totalShares, PRESTIGE_SOFTCAP_EXPONENT) * sharePct) / 100;
 
-    modals.showPrestigeConfirm({ gainedShares, totalShares, nextMult, sharePct }, () => {
+    modals.showPrestigeConfirm({ gainedShares, totalShares, nextMult }, () => {
       cutscenes.playHelicopterPrestige({
         gainedShares,
         totalShares,
@@ -965,8 +1087,9 @@ tabs = new TabsController({
         tutorialBubbleDismissedStep = -1;
         lastSpotlightTargetId = null;
         checkRosterChallengesAndNotify();
+        checkMasteryAndNotify();
         saveGame(state);
-        modals.toast('Salvataggio importato (compatibile v1–v4)!');
+        modals.toast('Salvataggio importato (compatibile v1–v4.5)!');
         refreshFullUI();
         return true;
       } catch (err) {
@@ -1043,8 +1166,9 @@ document.getElementById('tab-content')?.addEventListener(
   { passive: true }
 );
 
-// 5. Controllo retroattivo Sfide rosa (v3.5 -> v4.0), render iniziale & modale guadagni offline
+// 5. Controllo retroattivo Sfide rosa & Trofei Maestria, render iniziale & guadagni offline
 checkRosterChallengesAndNotify();
+checkMasteryAndNotify();
 refreshFullUI();
 if (offline && offline.amount > 0) {
   modals.showOfflineEarnings(offline, {
@@ -1086,7 +1210,7 @@ window.addEventListener('pagehide', () => {
   saveGame(state);
 });
 
-// 7. Registrazione silenziosa Service Worker v4
+// 7. Registrazione silenziosa Service Worker v7
 if ('serviceWorker' in navigator && window.isSecureContext) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -1096,6 +1220,7 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 // 8. Game Loop principale (requestAnimationFrame)
 let lastTime = performance.now();
 let uiThrottle = 0;
+let masteryThrottle = 0;
 
 function tick(now) {
   const dt = Math.min(0.1, Math.max(0, (now - lastTime) / 1000));
@@ -1108,7 +1233,7 @@ function tick(now) {
     addMoney(state, stats.incomePerSec * dt);
   }
 
-  // Aggiornamento Spareggio (28s realistici o Calci di Rigore — pausabile dal VAR!)
+  // Aggiornamento Spareggio (28s o Rigori 3D — pausabile dal VAR!)
   if (matchCtrl.active) {
     const matchEvents = matchCtrl.update(dt, state);
     for (const ev of matchEvents) {
@@ -1118,6 +1243,8 @@ function tick(now) {
       } else if (ev.type === 'spawn_danger') {
         audio.playWhistle('short');
         audio.setAmbienceIntensity(0.75);
+      } else if (ev.type === 'feint_switch') {
+        audio.playTap(true);
       } else if (ev.type === 'chance_expired') {
         audio.playMiss();
         audio.setAmbienceIntensity(0.2);
@@ -1132,8 +1259,10 @@ function tick(now) {
         stadium.triggerMatchGoal(false, state.leagueIndex);
       } else if (ev.type === 'enter_penalties') {
         audio.playWhistle('fulltime');
-        modals.toast('Pareggio al 90°! Si va ai CALCI DI RIGORE!', 2600);
+        modals.toast('Pareggio al 90°! Si va ai RIGORI 3D!', 2600);
         mountPenaltyControls();
+      } else if (ev.type === 'penalty_auto_resolved') {
+        handleOpponentPenaltyResolved(ev.res);
       } else if (ev.type === 'match_finished') {
         finalizeMatchOutcome(ev);
       }
@@ -1144,11 +1273,11 @@ function tick(now) {
     }
 
     if (matchCtrl.isPenalties && matchCtrl.penalties) {
-      modals.updatePenaltyCursor(matchCtrl.penalties.cursor);
+      modals.updatePenaltyLive(matchCtrl.penalties);
     }
   }
 
-  // Eventi Casuali fuori partita (Flash / Invasione / Blackout / Dilemmi A-B di Gino)
+  // Eventi Casuali fuori partita
   const spawned = flashEvents.update(dt, {
     isMatchActive: matchCtrl.active,
     leagueIndex: state.leagueIndex,
@@ -1173,13 +1302,16 @@ function tick(now) {
         },
       });
     } else {
-      audio.playFlashEvent(false);
-      const hint =
-        spawned.kind === 'invasion'
-          ? 'Toccalo 4 volte per placcarlo (×3 incassi + 🪙)!'
-          : spawned.kind === 'blackout'
-            ? 'Tocca il quadro elettrico 5 volte per riaccendere!'
-            : 'Toccalo entro 7s!';
+      if (spawned.kind === 'ape_car') audio.playHorn();
+      else audio.playFlashEvent(false);
+      const hintMap = {
+        invasion: 'Toccalo 4 volte per placcarlo (×3 incassi)!',
+        blackout: 'Tocca il quadro elettrico 5 volte per riaccendere!',
+        neighbor_pitchfork: 'Tocca il vicino 5 volte per recuperare il pallone!',
+        ape_car: 'Ferma l\'Ape Car con 4 tocchi (Sponsor ×2,5)!',
+        crazy_smoke: 'Tocca il campo 5 volte per diradare i fumogeni (×3 Tap)!',
+      };
+      const hint = hintMap[spawned.kind] || 'Toccalo entro 7s!';
       modals.toast(`${spawned.icon} ${spawned.title} ${hint}`, 2800);
     }
   }
@@ -1207,6 +1339,7 @@ function tick(now) {
     isMatchActive: matchCtrl.active,
     oppColors: matchCtrl.oppColors,
     polpettaReady: isPolpettaReady(state),
+    penalties: matchCtrl.isPenalties ? matchCtrl.penalties : null,
   });
 
   uiThrottle += dt;
@@ -1215,6 +1348,14 @@ function tick(now) {
     hud.update(state, matchCtrl);
     tabs.updateAffordability(state, matchCtrl);
     updateTutorialPointer();
+  }
+
+  masteryThrottle += dt;
+  if (masteryThrottle >= 1.2) {
+    masteryThrottle = 0;
+    if (checkMasteryAndNotify() && (tabs.activeTab === 'societa' || tabs.activeTab === 'spareggio')) {
+      tabs.render(state, matchCtrl);
+    }
   }
 
   requestAnimationFrame(tick);

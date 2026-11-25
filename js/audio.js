@@ -723,6 +723,82 @@ class ProceduralAudio {
     chime.stop(now + 0.26);
   }
 
+  playPerfectSave() {
+    const ctx = this._readySfx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    const thump = ctx.createOscillator();
+    const tg = ctx.createGain();
+    thump.type = 'triangle';
+    thump.frequency.setValueAtTime(260, now);
+    thump.frequency.exponentialRampToValueAtTime(68, now + 0.12);
+    tg.gain.setValueAtTime(0.25, now);
+    tg.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    thump.connect(tg);
+    tg.connect(ctx.destination);
+    thump.start(now);
+    thump.stop(now + 0.15);
+
+    [659.25, 880.0, 1318.5].forEach((freq, idx) => {
+      const t = now + 0.04 + idx * 0.045;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.12, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.28);
+    });
+  }
+
+  playRebound() {
+    const ctx = this._readySfx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [520, 1080].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = i === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.28, now + 0.13);
+      g.gain.setValueAtTime(i === 0 ? 0.16 : 0.1, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.16);
+    });
+  }
+
+  playHorn() {
+    const ctx = this._readySfx();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [0, 0.18].forEach((off) => {
+      const t = now + off;
+      [370, 466.16].forEach((f) => {
+        const osc = ctx.createOscillator();
+        const lp = ctx.createBiquadFilter();
+        const g = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(f, t);
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(1400, t);
+        g.gain.setValueAtTime(0.075, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+        osc.connect(lp);
+        lp.connect(g);
+        g.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.14);
+      });
+    });
+  }
+
   playCrossbar() {
     const ctx = this._readySfx();
     if (!ctx) return;

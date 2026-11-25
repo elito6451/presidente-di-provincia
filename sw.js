@@ -1,4 +1,4 @@
-const CACHE_NAME = 'presidente-provincia-v6';
+const CACHE_NAME = 'presidente-provincia-v7';
 
 const APP_SHELL = [
   './',
@@ -15,6 +15,7 @@ const APP_SHELL = [
   './js/state.js',
   './js/research.js',
   './js/challenges.js',
+  './js/expeditions.js',
   './js/storage.js',
   './js/audio.js',
   './js/gacha.js',

@@ -1,18 +1,20 @@
-import { UPGRADES, MILESTONE_LEVELS } from './config.js';
+import { UPGRADES, MILESTONE_LEVELS, LEAGUES } from './config.js';
 import { formatMoney, formatNumber } from './format.js';
 import {
   computeStats,
   getChecklistStatus,
   getPendingPrestigeShares,
   canPrestige,
-  canStartNewSeason,
   getUpgradeLevel,
   isUpgradeUnlocked,
+  getCurrentLeagueNextMastery,
   addMoney,
   activateBoost,
   activateInvasionBoost,
+  activateSmokeTapBoost,
 } from './state.js';
 import { PERMANENT_RESEARCHES, getResearchCost } from './research.js';
+import { getExpeditionStatus } from './expeditions.js';
 
 export const TUTORIAL_DONE_STEP = 6;
 
@@ -204,7 +206,7 @@ export const TUTORIAL_STEPS = [
     step: 1,
     expression: 'happy',
     title: 'Passo 2/6 — Club & Milestone ×2',
-    text: 'Ottimo tocco! Apri la tab Club e compra il tuo primo potenziamento: comparirà sullo stadio! Ricorda: a Lv.10, 25, 50 e 100 ogni upgrade raddoppia (×2)!',
+    text: 'Ottimo tocco! Apri la tab Club e compra il tuo primo potenziamento: comparirà sullo stadio! A Lv.10, 25, 50, 100 e ogni +50 livelli ogni upgrade raddoppia (×2)!',
     targetTab: 'club',
     manualAdvance: false,
   },
@@ -212,8 +214,9 @@ export const TUTORIAL_STEPS = [
     step: 2,
     expression: 'hype',
     title: 'Passo 3/6 — Scouting & Buste',
-    text: 'Appena hai €250, apri Scouting e spacchetta la tua prima Busta Oratorio: puoi pescare campioni fino a Leggenda e persino 4 rarissime Leggende Segrete!',
+    text: 'Appena hai €250, apri Scouting e spacchetta la tua prima Busta Oratorio: puoi pescare campioni fino a Leggenda, 4 Leggende Segrete e lanciare Spedizioni per i Cimeli!',
     targetTab: 'scouting',
+    subtab: 'buste',
     manualAdvance: false,
   },
   {
@@ -222,14 +225,15 @@ export const TUTORIAL_STEPS = [
     title: 'Passo 4/6 — Formazione 5 Titolari',
     text: 'Occhio alla tattica: SOLO i 5 titolari schierati (POR, DIF, CEN, 2 ATT) danno bonus e Forza Rosa! In Panchina puoi Fondere i doppioni (★+1) o Venderli.',
     targetTab: 'scouting',
+    subtab: 'formazione',
     manualAdvance: true,
     manualBtnLabel: 'Chiaro! Avanti →',
   },
   {
     step: 4,
     expression: 'hype',
-    title: 'Passo 5/6 — Spareggio 0\'–90\'',
-    text: 'Nella tab Spareggio completa la Checklist 3/3 (Incassi, Forza Titolari, Infrastrutture) e gioca il match da 28s: ferma l\'anello TIRA! sul verde e para PARA!!',
+    title: 'Passo 5/6 — Spareggio 0\'–90\' & Rigori 3D',
+    text: 'Completa la Checklist 3/3 in Spareggio e scendi in campo: ferma TIRA! sul verde, aspetta che l\'anello diventi ciano per PARA!, e al pari decidi ai Rigori 3D!',
     targetTab: 'spareggio',
     manualAdvance: true,
     manualBtnLabel: 'Pronto! Ultimo passo →',
@@ -376,48 +380,66 @@ const LEAGUE_BANTER = [
   'Serie A! Riflettori accesi, Food Lounge VIP e il Fondo Estero che ci corteggia.',
   'Notte Europea: siamo tra i giganti del continente! Punta al Mondiale per Club!',
   'Mondiale per Club! Tutto il pianeta guarda il nostro stadio dorato e Polpetta impazzisce!',
-  'Superlega Galattica: siamo nell\'olimpo cosmico del calcio! Conquista la Coppa per la Stella d\'Oro ★!',
+  'Superlega Galattica: benvenuto nella Dinastia Infinita 👑! Ogni difesa del titolo ti potenzia per sempre!',
 ];
 
 export function getGinoDynamicTip(state) {
   const stats = computeStats(state);
   const check = getChecklistStatus(state);
 
-  if (canStartNewSeason(state)) {
+  const expStatus = getExpeditionStatus(state);
+  if (expStatus && expStatus.ready) {
     return {
       urgent: true,
       expression: 'hype',
-      title: `Stagione ${(state.seasonNumber || 1) + 1} Sbloccata!`,
-      text: 'Presidente, abbiamo vinto la Superlega Galattica! Vai in Spareggio per avviare la Nuova Stagione con +1 ★ Stella d\'Oro (×2 permanente) e +25 🪙!',
-      ctaTab: 'spareggio',
-      ctaLabel: 'Nuova Stagione ★',
+      title: 'Spedizione Rientrata!',
+      text: `Presidente, "${expStatus.def.name}" è rientrata carica di Cimeli! Apri Scouting → Spedizioni per riscattare il bottino!`,
+      ctaTab: 'scouting',
+      ctaSubtab: 'spedizioni',
+      ctaLabel: 'Riscatta Cimeli 🗺️',
     };
   }
 
-  if (check.allReady && !state.seasonCompleted) {
+  if (check.allReady) {
+    const isDynasty = state.leagueIndex === LEAGUES.length - 1;
     return {
       urgent: true,
       expression: 'hype',
-      title: 'Spareggio Sbloccato!',
-      text: 'Presidente, la Checklist 3/3 è completa! Vai in Spareggio, scegli la tattica e scendi in campo!',
+      title: isDynasty
+        ? `Sfida Dinastia Lv.${(state.dynastyLevel || 0) + 1} Pronta!`
+        : 'Spareggio Sbloccato!',
+      text: isDynasty
+        ? `Checklist 3/3 completa! Difendi la Superlega Galattica per salire a Dinastia Lv.${(state.dynastyLevel || 0) + 1} (+20% incassi permanenti)!`
+        : 'Presidente, la Checklist 3/3 è completa! Vai in Spareggio, scegli la tattica e scendi in campo!',
       ctaTab: 'spareggio',
-      ctaLabel: 'Vai allo Spareggio',
+      ctaLabel: isDynasty ? 'Difendi Dinastia 👑' : 'Vai allo Spareggio',
     };
   }
 
   if (canPrestige(state)) {
     const pending = getPendingPrestigeShares(state);
-    if (pending >= 4 && state.leagueIndex >= 2) {
-      const gainPct = pending * stats.research.shareBonusPct;
+    if (pending >= 3 && state.leagueIndex >= 2) {
       return {
         urgent: true,
         expression: 'serious',
         title: 'Mossa da Tycoon: Prestige!',
-        text: `Puoi vendere al Fondo Estero per +${pending} Azioni (+${gainPct}% permanente)! Ripartirai come un razzo sfondando il muro.`,
+        text: `Hai battuto il tuo record di carriera! Puoi vendere al Fondo Estero per +${formatNumber(pending)} Azioni permanenti e tornare più forte che mai.`,
         ctaTab: 'societa',
         ctaLabel: 'Vedi Prestige',
       };
     }
+  }
+
+  const nextMastery = getCurrentLeagueNextMastery(state);
+  if (nextMastery && !nextMastery.allDone && nextMastery.cashPct >= 72 && nextMastery.infraPct >= 72) {
+    return {
+      urgent: false,
+      expression: 'hype',
+      title: `Trofeo ${nextMastery.tier.icon} ${nextMastery.tier.label} vicino!`,
+      text: `Ci sei quasi in ${nextMastery.league.name}: manca pochissimo per conquistare il Trofeo di Maestria ${nextMastery.tier.label} (+${nextMastery.tokens} 🪙 & +${nextMastery.tier.incomePct}% permanente)!`,
+      ctaTab: 'societa',
+      ctaLabel: 'Vedi Bacheca 🏆',
+    };
   }
 
   const affordableRes = PERMANENT_RESEARCHES.find((r) => {
@@ -605,6 +627,122 @@ export const PRESIDENT_DILEMMAS = [
         );
         addMoney(state, cash);
         return `Che dritta! +1 Busta Oratorio GRATIS e +${formatMoney(cash)}!`;
+      },
+    },
+  },
+  // --- 4 Nuovi Dilemmi Ignoranti v4.5 (zero 🪙!) ---
+  {
+    id: 'parmigiana_keeper',
+    title: 'Parmigiana Pre-Partita!',
+    desc: 'La nonna del portiere ha portato una teglia di parmigiana fumante negli spogliatoi 20 minuti prima del fischio d\'inizio!',
+    optionA: {
+      label: 'A) "Fagliela finire tutta!"',
+      sub: 'Ruttino sonico: Hype ×3 incassi per 24s!',
+      apply(state, stats) {
+        const durSec = 24 + (stats.research.eventDurationBonusSec || 0);
+        activateInvasionBoost(state, durSec * 1000);
+        return `Portiere inamovibile da 110kg! Stadio in estasi: ×3 incassi per ${durSec}s!`;
+      },
+    },
+    optionB: {
+      label: 'B) Vendila a porzioni in tribuna VIP',
+      sub: 'Maxi incasso gourmet immediato!',
+      apply(state, stats) {
+        const cash = Math.floor(
+          Math.max(stats.incomePerSec * 44, stats.tapValue * 68, 480 * stats.leagueMult) *
+            stats.research.eventCashMult
+        );
+        addMoney(state, cash);
+        return `Sold-out in 3 minuti a €25 a fetta! +${formatMoney(cash)} in cassa!`;
+      },
+    },
+  },
+  {
+    id: 'modulo_555',
+    title: 'Modulo 5-5-5 alla Oronzo Canà!',
+    desc: 'Il mister propone la "Bi-Zona" con i difensori che avanzano mentre gli attaccanti scappano al bar. Approvi?',
+    optionA: {
+      label: 'A) "Sì! Bi-Zona totale!"',
+      sub: 'Entusiasmo Curva ×3 Tap per 20s + cassa',
+      apply(state, stats) {
+        const durSec = 20 + (stats.research.eventDurationBonusSec || 0);
+        activateSmokeTapBoost(state, durSec * 1000);
+        const cash = Math.floor(
+          Math.max(stats.incomePerSec * 18, stats.tapValue * 30, 220 * stats.leagueMult) *
+            stats.research.eventCashMult
+        );
+        addMoney(state, cash);
+        return `Gli avversari non capiscono più nulla! ×3 Tap (${durSec}s) e +${formatMoney(cash)}!`;
+      },
+    },
+    optionB: {
+      label: 'B) "Vendi il libro della tattica!"',
+      sub: 'Boost ×2 per 45s + incasso diritti d\'autore',
+      apply(state, stats) {
+        const durSec = 45 + (stats.research.eventDurationBonusSec || 0);
+        activateBoost(state, durSec * 1000);
+        const cash = Math.floor(
+          Math.max(stats.incomePerSec * 24, stats.tapValue * 38, 280 * stats.leagueMult) *
+            stats.research.eventCashMult
+        );
+        addMoney(state, cash);
+        return `Bestseller a Coverciano! Boost ×2 (${durSec}s) e +${formatMoney(cash)}!`;
+      },
+    },
+  },
+  {
+    id: 'blind_referee',
+    title: 'Arbitro Senza Occhiali!',
+    desc: 'Il direttore di gara ha rotto le lenti parcheggiando la Panda. Ci chiede un consiglio "spassionato"...',
+    optionA: {
+      label: 'A) Offrigli caffè corretto & sorriso',
+      sub: 'Arbitraggio casalingo: ×3 incassi per 20s!',
+      apply(state, stats) {
+        const durSec = 20 + (stats.research.eventDurationBonusSec || 0);
+        activateInvasionBoost(state, durSec * 1000);
+        return `Fischia tutto a favore nostro! Stadio in delirio: ×3 per ${durSec}s!`;
+      },
+    },
+    optionB: {
+      label: 'B) Prestagli gli occhiali di Gino',
+      sub: '+1 Busta Scouting GRATIS per Fair Play!',
+      apply(state, stats) {
+        const packId = state.leagueIndex >= 3 ? 'vip' : state.leagueIndex >= 1 ? 'osservatore' : 'oratorio';
+        state.freePacks[packId] = (state.freePacks[packId] || 0) + 1;
+        return `Premio Fair Play della Lega! +1 Busta ${packId === 'vip' ? 'VIP' : packId === 'osservatore' ? 'Osservatore' : 'Oratorio'} GRATIS!`;
+      },
+    },
+  },
+  {
+    id: 'bar_bicycle_bet',
+    title: 'Scommessa al Bar sulla Rovesciata!',
+    desc: 'Il barista giura che il tuo terzino non riuscirà mai a fare una rovesciata senza slogarsi l\'anca.',
+    optionA: {
+      label: 'A) "Accetto la sfida in diretta!"',
+      sub: 'Rovesciata virale: ×3 Tap (18s) + cassa!',
+      apply(state, stats) {
+        const durSec = 18 + (stats.research.eventDurationBonusSec || 0);
+        activateSmokeTapBoost(state, durSec * 1000);
+        const cash = Math.floor(
+          Math.max(stats.incomePerSec * 26, stats.tapValue * 42, 300 * stats.leagueMult) *
+            stats.research.eventCashMult
+        );
+        addMoney(state, cash);
+        return `Palla nell'incrocio e video da 2 milioni di views! ×3 Tap (${durSec}s) e +${formatMoney(cash)}!`;
+      },
+    },
+    optionB: {
+      label: 'B) "Meglio incassare il giro di caffè"',
+      sub: 'Cassa sicura + Boost ×2 per 35s',
+      apply(state, stats) {
+        const durSec = 35 + (stats.research.eventDurationBonusSec || 0);
+        activateBoost(state, durSec * 1000);
+        const cash = Math.floor(
+          Math.max(stats.incomePerSec * 32, stats.tapValue * 50, 380 * stats.leagueMult) *
+            stats.research.eventCashMult
+        );
+        addMoney(state, cash);
+        return `Caffè gratis per tutta la squadra! +${formatMoney(cash)} e Boost ×2 (${durSec}s)!`;
       },
     },
   },

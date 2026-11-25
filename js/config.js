@@ -1,30 +1,98 @@
-// Configurazione centrale v4.0 ("Broadcast & Balance Overhaul") di "Presidente di Provincia"
+// Configurazione centrale v4.5 ("Dynasty, Relics & Precision Keeper") di "Presidente di Provincia"
 
 export const SAVE_KEY = 'presidente_provincia_save_v1';
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const AUTO_SAVE_INTERVAL_MS = 5000;
 export const OFFLINE_MIN_SECONDS = 15;
-export const OFFLINE_BASE_CAP_HOURS = 2; // espandibile fino a 12h con Ritiro H24
+export const OFFLINE_BASE_CAP_HOURS = 2; // espandibile fino a 12h+ con Ritiro H24 & Lavagnetta
 export const BOOST_DURATION_MS = 60 * 1000;
 export const INVASION_BOOST_DURATION_MS = 25 * 1000;
 export const POLPETTA_BOOST_DURATION_MS = 10 * 1000;
 export const POLPETTA_COOLDOWN_MS = 45 * 1000;
 export const DEMO_AD_SECONDS = 5;
 export const MAX_PLAYER_STARS = 5;
-export const PACK_COST_GROWTH = 1.50;    // v4.0: crescita 1,50^n + floor su peakBaseIncomePerSec
+export const PACK_COST_GROWTH = 1.50;    // crescita 1,50^n + floor su peakBaseIncomePerSec
 export const UPGRADE_COST_GROWTH = 1.18; // crescita 1,18^n anti-vittoria senza Prestige
 export const BASE_MATCH_DURATION_SEC = 28;
 export const ATTACK_COOLDOWN_SEC = 3.2;
 
 export const PRESTIGE_UNLOCK_RUN_CASH = 100000;
-export const PRESTIGE_SHARES_EXPONENT = 0.24; // v4.0: stop esplosione (+47K), curva controllata
-export const SEASON_BONUS_TOKENS = 25;
+export const PRESTIGE_SHARES_EXPONENT = 0.24;
+export const PRESTIGE_SOFTCAP_EXPONENT = 0.58; // v4.5: rendimenti decrescenti su prestigeMult & rosterShareBoost!
+
+// v4.5: Superlega Dinastia Infinita (nessun reset a Terza Categoria!)
+export const DYNASTY_CASH_GROWTH = 2.4;
+export const DYNASTY_POWER_STEP = 120;
+export const DYNASTY_POWER_CAP = 2300;
+export const DYNASTY_INFRA_STEP = 35;
+export const DYNASTY_DIFF_STEP = 0.03;
+export const DYNASTY_DIFF_CAP = 0.20;
+export const DYNASTY_INCOME_BONUS_PER_LVL = 0.20; // +20% additivo per Livello Dinastia
+export const DYNASTY_MILESTONE_TOKENS = {
+  3: 15,
+  5: 20,
+  10: 30,
+  15: 40,
+};
+
 export const SECRET_FIRST_DISCOVERY_TOKENS = 8;
-export const MILESTONE_LEVELS = [10, 25, 50, 100];
-// v4.0: Gettoni d'Oro solo alle grandi Milestone di carriera (Lv.50 e Lv.100); Lv.10/25 danno ×2
+export const MILESTONE_LEVELS = [10, 25, 50, 100]; // + ogni +50 livelli oltre 100 (150, 200, 250...) con 0 🪙
 export const MILESTONE_TOKEN_REWARDS = {
   50: 3,
   100: 5,
+};
+
+// v4.5: 28 Trofei di Maestria (7 categorie × 4 gradi, calibrati tramite simulazione su softcap 0,58!)
+export const MASTERY_TIERS = [
+  { id: 'bronze', label: 'Bronzo', icon: '🥉', incomePct: 1, tokens: 0, color: '#d97706' },
+  { id: 'silver', label: 'Argento', icon: '🥈', incomePct: 2, tokens: 0, color: '#cbd5e1' },
+  { id: 'gold', label: 'Oro', icon: '🥇', incomePct: 3, tokens: 3, color: '#fbbf24' },
+  { id: 'diamond', label: 'Diamante', icon: '💎', incomePct: 5, tokens: 6, color: '#38bdf8' },
+];
+
+export const LEAGUE_MASTERY_GOALS = {
+  terza: {
+    bronze: { infra: 25, cash: 1.5e4 },
+    silver: { infra: 120, cash: 2e6 },
+    gold: { infra: 240, cash: 8e7 },
+    diamond: { infra: 360, cash: 1.5e10, extraTapPct: 10, tokensOverride: 15 },
+  },
+  promozione: {
+    bronze: { infra: 55, cash: 2e5 },
+    silver: { infra: 220, cash: 5e7 },
+    gold: { infra: 420, cash: 1.5e10 },
+    diamond: { infra: 620, cash: 8e11 },
+  },
+  seriec: {
+    bronze: { infra: 120, cash: 2e8 },
+    silver: { infra: 420, cash: 4e10 },
+    gold: { infra: 750, cash: 4e12 },
+    diamond: { infra: 1050, cash: 1.8e14 },
+  },
+  seriea: {
+    bronze: { infra: 220, cash: 1e12 },
+    silver: { infra: 650, cash: 2.5e14 },
+    gold: { infra: 1100, cash: 4e15 },
+    diamond: { infra: 1500, cash: 3e16 },
+  },
+  europa: {
+    bronze: { infra: 340, cash: 5e15 },
+    silver: { infra: 900, cash: 4e17 },
+    gold: { infra: 1500, cash: 4e18 },
+    diamond: { infra: 2050, cash: 3.5e19 },
+  },
+  mondiale: {
+    bronze: { infra: 420, cash: 2e16 },
+    silver: { infra: 1000, cash: 1.5e18 },
+    gold: { infra: 1600, cash: 1.2e19 },
+    diamond: { infra: 2150, cash: 8e19 },
+  },
+  superlega: {
+    bronze: { infra: 500, cash: 1e17 },
+    silver: { infra: 1100, cash: 5e18 },
+    gold: { infra: 1750, cash: 5e19 },
+    diamond: { infra: 2300, cash: 5e20 },
+  },
 };
 
 // 5 slot di ruolo fissi per la formazione titolare (1 POR, 1 DIF, 1 CEN, 2 ATT)
@@ -284,7 +352,7 @@ export const LEAGUES = [
     badgeColor: '#9333ea',
     accent: '#f472b6',
     multiplier: 64,
-    unlockCash: 1.8e20, // €180Qi (calibrata su Prestige 0,24)
+    unlockCash: 1.2e20, // €120Qi (Dinastia base, scala ×2,4^d)
     minSquadPower: 1700,
     minInfraLevels: 420,
     promotionTokens: 40,
@@ -364,8 +432,7 @@ export const UPGRADES = [
     tapAdd: 0,
     incomeAdd: 75,
     unlockLeague: 1,
-    unlockRunCashOr: 1500,
-    unlockText: 'Sblocca: Promozione o €1,5K',
+    unlockText: 'Sblocca: Promozione',
     visualBuilding: 'curva',
   },
   {
@@ -462,8 +529,7 @@ export const UPGRADES = [
     tapAdd: 180000,
     incomeAdd: 135000000,
     unlockLeague: 4,
-    unlockRunCashOr: 120000000000,
-    unlockText: 'Sblocca: Notte Europea o €120B',
+    unlockText: 'Sblocca: Notte Europea',
     visualBuilding: 'vip',
   },
   {

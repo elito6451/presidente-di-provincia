@@ -5,6 +5,8 @@ import {
   getPlayerEffectivePower,
   canFuseBenchIntoStarter,
 } from '../gacha.js';
+import { PENALTY_ZONES } from '../match.js';
+import { RELIC_RARITIES, RELIC_BY_ID } from '../expeditions.js';
 import { audio } from '../audio.js';
 import { iconSvg } from './icons.js';
 import { getGinoBustSvg } from '../assistant.js';
@@ -50,10 +52,11 @@ export class ModalManager {
   }
 
   /**
-   * Pannello Calci di Rigore ancorato nella metà inferiore (.tabs-panel),
-   * lasciando il Canvas dello stadio in alto completamente visibile e libero!
+   * Pannello Calci di Rigore Frontali 3D ancorato nella metà inferiore (.tabs-panel).
+   * - Turno tiro: 5 zone in porta (Incroci, Cucchiaio, Basso) + barra precisione dinamica.
+   * - Turno parata: barra rincorsa + 3 tuffi riflesso!
    */
-  renderPenaltyDock(matchCtrl, state, { onSelectCorner, onShoot, onDive }) {
+  renderPenaltyDock(matchCtrl, state, { onSelectZone, onShoot, onDive }) {
     const pen = matchCtrl.penalties;
     if (!pen || !this.penaltyDock) return;
 
@@ -74,13 +77,35 @@ export class ModalManager {
     const yellowLeft = (0.5 - pen.yellowHalf) * 100;
     const yellowWidth = pen.yellowHalf * 2 * 100;
 
+    const topRow = PENALTY_ZONES.slice(0, 3);
+    const botRow = PENALTY_ZONES.slice(3, 5);
+
+    const runupPct = Math.min(100, ((pen.runupElapsed || 0) / Math.max(0.1, pen.runupDuration || 1.15)) * 100);
+
     const controlsHtml =
       pen.turn === 'player'
         ? `
-          <div class="pen-corners">
-            <button type="button" class="pen-corner-btn ${pen.selectedCorner === 'left' ? 'selected' : ''}" data-pen-corner="left" ${pen.locked ? 'disabled' : ''}>⬅ Sinistra</button>
-            <button type="button" class="pen-corner-btn ${pen.selectedCorner === 'center' ? 'selected' : ''}" data-pen-corner="center" ${pen.locked ? 'disabled' : ''}>⬆ Centro</button>
-            <button type="button" class="pen-corner-btn ${pen.selectedCorner === 'right' ? 'selected' : ''}" data-pen-corner="right" ${pen.locked ? 'disabled' : ''}>Destra ➡</button>
+          <div class="pen-zones-5">
+            <div class="pen-zones-row top">
+              ${topRow
+                .map(
+                  (z) => `
+                <button type="button" class="pen-corner-btn ${pen.selectedZone === z.id ? 'selected' : ''}" data-pen-zone="${z.id}" ${pen.locked ? 'disabled' : ''}>
+                  ${z.short}
+                </button>`
+                )
+                .join('')}
+            </div>
+            <div class="pen-zones-row bot">
+              ${botRow
+                .map(
+                  (z) => `
+                <button type="button" class="pen-corner-btn ${pen.selectedZone === z.id ? 'selected' : ''}" data-pen-zone="${z.id}" ${pen.locked ? 'disabled' : ''}>
+                  ${z.short}
+                </button>`
+                )
+                .join('')}
+            </div>
           </div>
           <div class="pen-timing-track" id="pen-timing-track">
             <div class="pen-zone-yellow" style="left:${yellowLeft.toFixed(1)}%;width:${yellowWidth.toFixed(1)}%;"></div>
@@ -92,8 +117,11 @@ export class ModalManager {
           </button>
         `
         : `
-          <div style="font-size:11.5px;color:#93c5fd;text-align:center;font-weight:800;">
-            Tuffo Portiere — Scegli dove parare il tiro di ${escapeHTML(matchCtrl.opponent)}:
+          <div style="font-size:11px;color:#fde047;text-align:center;font-weight:800;">
+            👀 Guarda la rincorsa di ${escapeHTML(matchCtrl.opponent)} sulla porta 3D e TUFFATI!
+          </div>
+          <div class="progress-track" style="height:8px;">
+            <div class="progress-fill" id="pen-runup-fill" style="width:${runupPct.toFixed(1)}%;background:linear-gradient(90deg,#38bdf8,#f59e0b);"></div>
           </div>
           <div class="pen-corners">
             <button type="button" class="cta-btn" style="padding:12px 6px;font-size:12px;" data-pen-dive="left" ${pen.locked ? 'disabled' : ''}>🧤 Sinistra</button>
@@ -104,7 +132,7 @@ export class ModalManager {
 
     this.penaltyDock.innerHTML = `
       <div class="pen-header">
-        <span class="pen-title">${iconSvg('whistle', 'svg-ico')} CALCI DI RIGORE ${pen.suddenDeath ? '(OLTRANZA)' : ''}</span>
+        <span class="pen-title">${iconSvg('whistle', 'svg-ico')} RIGORI 3D ${pen.suddenDeath ? '(OLTRANZA)' : ''}</span>
         <span class="pen-score-pill">${pen.myScore} - ${pen.oppScore}</span>
       </div>
 
@@ -123,8 +151,8 @@ export class ModalManager {
       ${controlsHtml}
     `;
 
-    this.penaltyDock.querySelectorAll('[data-pen-corner]').forEach((btn) => {
-      btn.addEventListener('click', () => onSelectCorner(btn.dataset.penCorner));
+    this.penaltyDock.querySelectorAll('[data-pen-zone]').forEach((btn) => {
+      btn.addEventListener('click', () => onSelectZone(btn.dataset.penZone));
     });
     this.penaltyDock.querySelector('#btn-pen-shoot')?.addEventListener('click', () => onShoot());
     this.penaltyDock.querySelector('#pen-timing-track')?.addEventListener('pointerdown', (ev) => {
@@ -136,10 +164,19 @@ export class ModalManager {
     });
   }
 
-  updatePenaltyCursor(cursorNorm) {
-    const el = document.getElementById('pen-cursor');
-    if (el) {
-      el.style.left = `${(cursorNorm * 100).toFixed(1)}%`;
+  updatePenaltyLive(pen) {
+    if (!pen) return;
+    if (pen.turn === 'player') {
+      const el = document.getElementById('pen-cursor');
+      if (el) {
+        el.style.left = `${(pen.cursor * 100).toFixed(1)}%`;
+      }
+    } else if (pen.turn === 'opponent') {
+      const fill = document.getElementById('pen-runup-fill');
+      if (fill) {
+        const pct = Math.min(100, ((pen.runupElapsed || 0) / Math.max(0.1, pen.runupDuration || 1.15)) * 100);
+        fill.style.width = `${pct.toFixed(1)}%`;
+      }
     }
   }
 
@@ -299,9 +336,12 @@ export class ModalManager {
       if (result.semifinalWon) {
         headline = '🔥 QUALIFICATO ALLA FINALE!';
         desc = `${scoreLine}<br/><br/>Semifinale superata${tokLine}! Ora ti attende la <strong>${escapeHTML(result.nextRound.roundName)}</strong> contro <strong>${escapeHTML(result.nextRound.opponent)}</strong>!`;
-      } else if (result.finalCup) {
-        headline = '🌌 CAMPIONI DELLA SUPERLEGA!';
-        desc = `${scoreLine}<br/><br/>Hai conquistato <strong>${escapeHTML(result.trophyName)}</strong>${tokLine}! Ora puoi avviare la <strong>Nuova Stagione</strong> nella tab Spareggio per ottenere una <strong>Stella d'Oro ★ (×2 permanente)</strong> e <strong>+25 🪙</strong>!`;
+      } else if (result.dynastyUp) {
+        headline = `👑 DINASTIA LV.${result.dynastyLevel} CONQUISTATA!`;
+        const msLine = result.dynastyMilestoneBonus
+          ? `<br/><span style="color:#fde047;font-weight:900;">🎉 Traguardo Dinastia Lv.${result.dynastyLevel}: +${result.dynastyMilestoneBonus} 🪙 extra!</span>`
+          : '';
+        desc = `${scoreLine}<br/><br/>Hai difeso la <strong>Superlega Galattica</strong>${tokLine}! Il tuo Club sale a <strong>👑 Dinastia Lv.${result.dynastyLevel}</strong> (<strong>+20% incassi permanenti per livello</strong>) senza alcun reset!${msLine}`;
       }
 
       if (result.newChallenges && result.newChallenges.length > 0) {
@@ -428,14 +468,14 @@ export class ModalManager {
     }
   }
 
-  showPrestigeConfirm({ gainedShares, totalShares, nextMult, sharePct }, onConfirm) {
+  showPrestigeConfirm({ gainedShares, totalShares, nextMult }, onConfirm) {
     this._open(`
       <h2 class="modal-title">${iconSvg('briefcase', 'svg-ico')} Vendi al Fondo Estero</h2>
       <div class="modal-body">
         L'elicottero del fondo è pronto ad atterrare!<br/><br/>
-        • Ricevi <strong>+${gainedShares} Azioni</strong> (Totale: <strong>${totalShares}</strong> → moltiplicatore globale <strong>×${nextMult.toFixed(2).replace('.', ',')}</strong>, +${sharePct}% ciascuna).<br/>
-        • <strong>Mantieni per sempre</strong>: Gettoni d'Oro, Ricerche Permanenti, Trofei, Leggende Segrete scoperte, Nome e Colori Club.<br/>
-        • Riparti dalla <strong>Terza Categoria</strong> per sfondare il muro a razzo!
+        • Ricevi <strong>+${gainedShares} Azioni</strong> (Totale: <strong>${totalShares}</strong> → moltiplicatore globale bilanciato <strong>×${nextMult.toFixed(2).replace('.', ',')}</strong>).<br/>
+        • <strong>Mantieni per sempre</strong>: Dinastia 👑, Trofei di Maestria, Cimeli & Spedizioni, Gettoni d'Oro, Ricerche, Segreti scoperti e Identità Club.<br/>
+        • Riparti dalla <strong>Terza Categoria</strong> con il nuovo record di carriera!
       </div>
       <div class="modal-actions">
         <button type="button" class="cta-btn prestige-btn" id="btn-confirm-prestige">🚁 Firma Cessione (+${gainedShares} Azioni)</button>
@@ -448,6 +488,45 @@ export class ModalManager {
       onConfirm();
     });
     document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
+  }
+
+  showExpeditionRewardModal(def, drops, onDone) {
+    const cardsHtml = drops
+      .map((item) => {
+        const rDef = RELIC_BY_ID[item.relicId];
+        const rar = RELIC_RARITIES[item.rarity] || RELIC_RARITIES.comune;
+        return `
+          <div class="slot-picker-row" style="border-left:3px solid ${rar.color};padding:8px 10px;">
+            <div style="font-size:22px;flex-shrink:0;">${rDef ? rDef.icon : '🏺'}</div>
+            <div style="text-align:left;min-width:0;flex:1;">
+              <div style="font-size:12.5px;font-weight:900;color:#fff;">
+                ${escapeHTML(rDef ? rDef.name : 'Cimelio')}
+              </div>
+              <div style="font-size:10.5px;margin-top:2px;">
+                <span class="rarity-tag" style="background:${rar.bg};color:${rar.color};">${rar.label}</span>
+                <span style="color:#86efac;font-weight:800;margin-left:4px;">${escapeHTML(rDef ? rDef.formatEffect(item.rarity) : '')}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    this._open(`
+      <h2 class="modal-title">${def.icon} Spedizione Rientrata!</h2>
+      <div class="modal-body">
+        La trasferta <strong>${escapeHTML(def.name)}</strong> ha portato in sede <strong>${drops.length} Cimeli</strong> permanenti!
+      </div>
+      <div class="slot-picker-list">${cardsHtml}</div>
+      <div class="modal-actions">
+        <button type="button" class="cta-btn" id="btn-exp-ok">Fantastico!</button>
+      </div>
+    `);
+
+    document.getElementById('btn-exp-ok')?.addEventListener('click', () => {
+      this.close();
+      if (onDone) onDone();
+    });
   }
 
   showSlotPickerModal({ slotDef, currentStarter, benchCandidates, onPick, onFuse, onUnequip }) {
@@ -518,29 +597,6 @@ export class ModalManager {
         this.close();
         onFuse(btn.dataset.fusePlayer);
       });
-    });
-    document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
-  }
-
-  showNewSeasonConfirm({ nextSeason, nextStars, nextMult, gainedShares, bonusTokens }, onConfirm) {
-    this._open(`
-      <h2 class="modal-title">🌌 Avvia Stagione ${nextSeason}</h2>
-      <div class="modal-body">
-        Hai trionfato nella <strong>Superlega Galattica</strong>!<br/><br/>
-        • Ricevi <strong>+1 ★ Stella d'Oro</strong> sul nome del Club (Totale: <strong>${nextStars}★</strong> → moltiplicatore permanente <strong>×${nextMult}</strong>!).<br/>
-        • Bonus immediato: <strong>+${bonusTokens} 🪙 Gettoni d'Oro</strong>${gainedShares > 0 ? ` + <strong>+${gainedShares} Azioni Prestige</strong>` : ''}.<br/>
-        • Le soglie cassa della Stagione ${nextSeason} crescono di <strong>×5</strong> per una nuova sfida leggendaria!<br/>
-        • <strong>Mantieni per sempre</strong>: Stelle ★, Gettoni, Ricerche, Trofei, Segreti scoperti e Sfide.
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="cta-btn season-btn" id="btn-confirm-season">★ Inizia Stagione ${nextSeason}!</button>
-        <button type="button" class="sec-btn" id="btn-close-modal">Annulla</button>
-      </div>
-    `);
-
-    document.getElementById('btn-confirm-season')?.addEventListener('click', () => {
-      this.close();
-      onConfirm();
     });
     document.getElementById('btn-close-modal')?.addEventListener('click', () => this.close());
   }
